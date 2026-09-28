@@ -1,0 +1,25 @@
+# TDA 部署 profile：DSH 基座之上的 tda-* 插件层叠（IT0 声明态）。
+#
+# 层叠顺序（T0.0 §1，后写覆盖、按行寻址）：
+#   dsh-base（DSH 发货基座，提供 session/storage/invariants 等全部底座行）
+#     → 各 mode bundle → 本 TDA 层 → 用户 patch（$DSH_HOME/cordis.patch.yml）
+# patch 语义：`- id: <行id>` 整块替换该行 config（不合并）；`- insert:` 追加新行。
+#
+# 本文件只放 TDA 层——DSH 基座行由 dsh-base bundle 提供，不拷贝（改 DSH 零行代码）。
+# IT1 vendor DSH 后由 boot 真正加载本层；IT0 先冻结行位与 id 约定：
+#   TDA 插件行 id = tda-<插件短名>，name = 工作区 npm 包名（plugins/<pkg>）。
+# 插件自身代码（domain/service/loadChecks）不引用本文件——装配方式与层叠解耦。
+
+# —— tda 插件层（本仓 plugins/*；随 IT 迭代逐行启用，未启用不写）——
+- insert:
+    # IT0 冒烟插件：kill -9 三场景 + 双写对账 + replay-equivalence 验收载体
+    - id: tda-smoke
+      name: tda-smoke
+
+# IT1 起按落地顺序追加的行位约定（P0 六族，未启用不写）：
+#   - id: tda-goal-state        name: tda-goal-state         # T0.1 目标状态机（goalTree/change）
+#   - id: tda-task-pool         name: tda-task-pool          # T0.2 跨会话任务池（taskPool/change）
+#   - id: tda-timeline          name: tda-timeline           # T0.3 单事实时间线（timeline/write）
+#   - id: tda-context           name: tda-context            # T0.4 旋转上下文（context/assemble）
+#   - id: tda-subagent-dispatch name: tda-subagent-dispatch  # T0.5 子代理派发（dispatch/change）
+#   - id: tda-workspace         name: tda-workspace          # T0.6 工作区扫描（workspace/scan）

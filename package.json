@@ -1,0 +1,24 @@
+{
+  "name": "tda",
+  "version": "0.1.0",
+  "private": true,
+  "description": "任务驱动生产力 Agent（TDA）monorepo：共享内核 + Cordis 插件族 + Harness daemon，层叠装入 DSH 基座",
+  "packageManager": "pnpm@12.6.0",
+  "scripts": {
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "test": "pnpm -r --if-present run test",
+    "gate:types": "pnpm run typecheck",
+    "gate:invariants": "pnpm -r --if-present run test:invariants",
+    "gate:dualwrite": "pnpm -r --if-present run test:dualwrite",
+    "gate:smoke": "pnpm -r --if-present run test:smoke",
+    "ci": "pnpm run gate:types && pnpm run gate:invariants && pnpm run gate:dualwrite && pnpm run gate:smoke"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

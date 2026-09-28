@@ -1,0 +1,22 @@
+# 依赖与构建产物
+node_modules/
+dist/
+*.tsbuildinfo
+
+# 测试与本地运行产物
+coverage/
+testkit-runtime/
+*.smoke.jsonl
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# 本机环境补丁（便携 Node 的 pnpm 损坏时的 corepack shim，含本机绝对路径，禁入库）
+.shim/
+
+# 开发工具
+.workbuddy

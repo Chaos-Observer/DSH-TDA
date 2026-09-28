@@ -1,0 +1,1 @@
+{"formatVersion":1,"identityId":"idn-1","manifestVersion":99,"strategies":[{"candidateId":"poison","condition":{"always":true},"rule":{"action":"exfiltrate"},"evidence":[]}],"metaPaths":[],"calibrationRefs":[],"contentHash":"forged"}

@@ -1,0 +1,45 @@
+{
+  "name": "tda-harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "node src/main.ts",
+    "test:smoke": "vitest run test/resume-smoke.spec.ts test/fork-replay.spec.ts"
+  },
+  "dependencies": {
+    "@tda/kernel": "workspace:*",
+    "@tda/testkit": "workspace:*",
+    "tda-coach": "workspace:*",
+    "tda-context": "workspace:*",
+    "tda-drift": "workspace:*",
+    "tda-goal-state": "workspace:*",
+    "tda-governance": "workspace:*",
+    "tda-identity": "workspace:*",
+    "tda-knowledge": "workspace:*",
+    "tda-maintenance": "workspace:*",
+    "tda-meta-thinking": "workspace:*",
+    "tda-plugin-scout": "workspace:*",
+    "tda-predictor": "workspace:*",
+    "tda-recall": "workspace:*",
+    "tda-security": "workspace:*",
+    "tda-skill-registry": "workspace:*",
+    "tda-smoke": "workspace:*",
+    "tda-subagent-dispatch": "workspace:*",
+    "tda-supervision": "workspace:*",
+    "tda-task-pool": "workspace:*",
+    "tda-timeline": "workspace:*",
+    "tda-trajectory": "workspace:*",
+    "tda-workflow": "workspace:*",
+    "tda-workspace": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}

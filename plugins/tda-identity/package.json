@@ -1,0 +1,25 @@
+{
+  "name": "tda-identity",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:invariants": "vitest run test/invariants.spec.ts",
+    "test:dualwrite": "vitest run test/dualwrite.spec.ts",
+    "test:smoke": "vitest run test/gate.spec.ts"
+  },
+  "dependencies": {
+    "@tda/kernel": "workspace:*",
+    "@tda/testkit": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}

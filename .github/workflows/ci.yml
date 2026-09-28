@@ -1,0 +1,28 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # CI 四道红线门（实现施工方案 §2.3）。红队门 P3 启用，未到阶段不进本文件。
+      - name: 门1 类型门（tsc strict + 无 any 逃逸）
+        run: pnpm run gate:types
+      - name: 门2 不变量门（各插件 invariants.spec.ts 全绿）
+        run: pnpm run gate:invariants
+      - name: 门3 双写对账门（domain 变更 ↔ log-only 事件逐一配对）
+        run: pnpm run gate:dualwrite
+      - name: 门4 冒烟门（kill -9 三场景 + fork deriveMessages 前缀等值 + replay-equivalence）
+        run: pnpm run gate:smoke
