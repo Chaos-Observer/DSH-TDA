@@ -128,6 +128,29 @@ export {
   type ScriptedProvider,
   type ScriptedProviderSpec,
 } from './provider.ts';
+/**
+ * P5.3 DSH StreamChunk 换真适配（真实通道）+ scripted stream face（测试注入面）。
+ */
+export {
+  createDshStreamProvider,
+  createScriptedStreamFace,
+  extractJsonObject,
+  structuredFromBlocks,
+  mapFinishToStopReason,
+  type DshStreamFace,
+  type DshStreamProvider,
+  type DshStreamProviderOptions,
+  type ScriptedStreamFaceSpec,
+  type DshContentBlock,
+  type DshFinishReason,
+  type DshGenerateOptions,
+  type DshStreamChunk,
+  type DshTokenUsage,
+} from './dshStreamProvider.ts';
+export {
+  createOpenAiCompatStreamFace,
+  type OpenAiCompatFaceOptions,
+} from './openAiCompatFace.ts';
 export {
   createDispatchTools,
   DISPATCH_TOOL_NAMES,
