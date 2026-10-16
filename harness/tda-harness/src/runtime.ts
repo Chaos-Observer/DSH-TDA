@@ -23,7 +23,11 @@ import {
   asSessionId,
   asGoalId,
   asTaskId,
+  asDispatchId,
+  TdaError,
   createJsonBackend,
+  createSqliteBackend,
+  openDshCompatSessionHost,
   createTdaEventBus,
   createTdaInvariantRegistry,
   openTdaDomain,
@@ -32,6 +36,7 @@ import {
   type SessionId,
   type TdaDomain,
   type TdaSessionHost,
+  type WorkflowDefId,
 } from '@tda/kernel';
 import { openFileSessionHost } from '@tda/testkit';
 import {
@@ -83,6 +88,30 @@ import { createSupervisionService, supervisionDomainSpec, type SupervisionServic
 import { createIdentityService, identityDomainSpec, type IdentityService, type IdentityTables } from 'tda-identity';
 import { createSecurityService, securityDomainSpec, seedRows, type SecurityService, type SecurityTables } from 'tda-security';
 import { tdaSmokePlugin, type TdaSmokeHandle } from 'tda-smoke';
+import {
+  tdaExecutorPlugin,
+  type ExecutorTaskView,
+  type TdaExecutorHandle,
+} from 'tda-executor';
+import {
+  tdaPlannerPlugin,
+  type Decomposer,
+  type PlannerTaskView,
+  type TdaPlannerHandle,
+} from 'tda-planner';
+import {
+  tdaGraphPlugin,
+  type GraphGoalView,
+  type GraphTaskView,
+  type TdaGraphHandle,
+} from 'tda-graph';
+import {
+  tdaIntakePlugin,
+  type DraftExtractor,
+  type TdaIntakeHandle,
+  type TreeDecomposer,
+} from 'tda-intake';
+import { tdaDisplayPlugin, type TdaDisplayHandle } from 'tda-display';
 
 /** tick 报告：可观测（Harness 日志/测试断言双用）。 */
 export interface TdaRuntimeTickReport {
@@ -92,6 +121,8 @@ export interface TdaRuntimeTickReport {
   readonly skipped: readonly string[];
   /** 本轮由 pump 开跑的派发单（并发帽内出队的排队单）。 */
   readonly dispatched: readonly string[];
+  /** P4（T4.1）：执行环本轮驱动的 attempt 报告（completed/failed/awaiting-approval/skipped）。 */
+  readonly executed: readonly string[];
 }
 
 export interface TdaRuntime {
@@ -127,6 +158,16 @@ export interface TdaRuntime {
   readonly knowledge: { readonly domain: TdaDomain<KnowledgeTables>; readonly service: KnowledgeService };
   readonly identity: { readonly domain: TdaDomain<IdentityTables>; readonly service: IdentityService };
   readonly security: { readonly domain: TdaDomain<SecurityTables>; readonly service: SecurityService };
+  /** P4（T4.1）：任务执行环（athlete）。 */
+  readonly executor: TdaExecutorHandle;
+  /** P4（T4.5）：任务规划器（零执行权）。 */
+  readonly planner: TdaPlannerHandle;
+  /** P4（T4.3）：任务图谱聚合读模型（graphEnabled=false 时不装配）。 */
+  readonly graph?: TdaGraphHandle;
+  /** P4（T4.2）：需求对接（三阶段流水线）。 */
+  readonly intake: TdaIntakeHandle;
+  /** P4（T4.4）：状态台（displayEnabled=false 时不装配）。 */
+  readonly display?: TdaDisplayHandle;
   /** 会话主机（日志/轮次/消息/seed marker 的宿主面）。 */
   readonly host: TdaSessionHost;
   /** resume 恢复序的现场证据（boot 时刻采集）。 */
@@ -139,6 +180,12 @@ export interface TdaRuntime {
   /** P2 周期驱动（coach 复盘 / 技能无周期 / 维护 cycle / scout scan；各自帽与 fail-open 兜底）。 */
   driveP2(): Promise<{ coachCandidates: number; maintenanceProposed: number; scoutAssessed: number }>;
   driveP3(): Promise<{ knowledgeQueued: number; securityCases: number; supervisionPending: number }>;
+  /** P4（T4.1 J7）：人类批准后凭 ResumeTicket 续跑挂起 attempt（装配层桥）。 */
+  approveAndResume(approvalId: string, token: string): Promise<import('tda-executor').ExecutorAttempt>;
+  /** P4（T4.5 J4）：人类批准后凭 ResumeTicket 激活预案（装配层桥）。 */
+  approveAndActivate(approvalId: string, token: string): Promise<import('tda-planner').PlanContingency>;
+  /** P4（T4.2 J6）：人类批准后凭 ResumeTicket 代建目标树（装配层桥）。 */
+  approveAndCommitIntake(approvalId: string, token: string): Promise<readonly string[]>;
   verifyInvariants(): Promise<void>;
   dispose(): Promise<void>;
 }
@@ -168,6 +215,52 @@ export interface AssembleRuntimeOptions {
   readonly securityFixtureDir?: string | undefined;
   /** P2：scout 的 registry 快照行（v1 测试注入面；生产接 dsh.so）。 */
   readonly scoutRegistryRows?: readonly RegistryPluginRow[];
+  /** P4（T4.1 J8）：主任务活跃信号（执行环让位纪律；装配层注入，v1 保守近似）。 */
+  readonly isMainActive?: () => boolean;
+  /**
+   * P4（T4.1）：执行环 tick 阶段开关（**默认 false**）。
+   * 装配期教训：既有集成测试以手动流驱动任务，执行环自动认领会与之相撞
+   * （claim/complete 撞 STALE）。v1  opt-in：P4 集成门显式开启；
+   * DSH 真装配（系统性前置）落地后随主循环形态改默认开。
+   */
+  readonly executorEnabled?: boolean;
+  /**
+   * P4（T4.5）：规划器 tick 触发扫描开关（**默认 false**，同 executor 的 opt-in 纪律）。
+   * J2：LLM 分解工序由装配层注入（缺省 ⇒ plan/replan 抛 NO_DECOMPOSER）。
+   */
+  readonly plannerEnabled?: boolean;
+  readonly decomposer?: Decomposer;
+  /**
+   * P4（T4.3 J3）：图谱聚合读模型（boot 必重建 + bus 快速路径 + tick reconcile）。
+   * 纯派生零写权（对权威域只读），默认开——无 opt-in 必要（与 executor/planner
+   * 的"自动认领会撞手动流"不同，graph 不碰任何权威状态）。
+   */
+  readonly graphEnabled?: boolean;
+  /**
+   * P4（T4.2 J3/J4）：intake 的 LLM 工序（抽取/分解）由装配层注入。
+   * intake 阶段无 taskId——走独立 seam（内部复用 subagents 隔离契约，
+   * 不经 T0.5 task 记录通道；收敛评估随 DSH 真装配，T4.2 U6）。
+   */
+  readonly intakeExtractor?: DraftExtractor;
+  readonly intakeDecomposer?: TreeDecomposer;
+  /**
+   * P4（T4.4 J2）：状态台 HTTP 服务开关（**默认 false**——测试环境不绑端口；
+   * daemon/驱动脚本显式开启后监听 127.0.0.1:7391，浏览器打开即三视图功能界面）。
+   */
+  readonly displayEnabled?: boolean;
+  /** 状态台端口（默认 7391；0=ephemeral）。 */
+  readonly displayPort?: number;
+  /**
+   * P5.1：存储后端选择（默认 'json'）。'sqlite' = DSH 兼容物理布局
+   * （createSqliteBackend——域数据落 `<dir>/tda.db`，可被 DSH 后端直接打开）。
+   */
+  readonly storageBackend?: 'json' | 'sqlite';
+  /**
+   * P5.2：会话日志物理格式（默认 'file'=TDA 自有行形态）。'dsh-compat' =
+   * DSH jsonl 兼容（header v4 + ignorable 事件行——可被 DSH session-persistence
+   * 词表门采纳；P5.4 由 DSH 宿主接管）。
+   */
+  readonly sessionBackend?: 'file' | 'dsh-compat';
 }
 
 /** 预期内的跳过（让位/三区/待批/并发过期/状态不允许），非错误。 */
@@ -183,15 +276,23 @@ const SKIPPABLE_CODES = new Set([
 ]);
 
 export async function assembleRuntime(options: AssembleRuntimeOptions): Promise<TdaRuntime> {
-  const storage = createJsonBackend(options.dir);
+  // P5.1：存储后端分流（json=IT0 参考实现；sqlite=DSH 兼容布局，P5.4 由 DSH Service 接管）
+  const storage =
+    options.storageBackend === 'sqlite'
+      ? createSqliteBackend(join(options.dir, 'tda.db'))
+      : createJsonBackend(options.dir);
   const invariants = createTdaInvariantRegistry();
   const bus = createTdaEventBus();
   const clock = options.now ?? ((): number => Date.now());
   const bootAt = clock();
-  const host = openFileSessionHost(
-    join(options.dir, 'session.jsonl'),
-    asSessionId(options.sessionId ?? 'sess-harness'),
-  );
+  // P5.2：会话主机分流（file=TDA 行形态参考实现；dsh-compat=DSH jsonl 兼容格式）
+  const host =
+    options.sessionBackend === 'dsh-compat'
+      ? openDshCompatSessionHost(
+          join(options.dir, 'session.jsonl'),
+          asSessionId(options.sessionId ?? 'sess-harness'),
+        )
+      : openFileSessionHost(join(options.dir, 'session.jsonl'), asSessionId(options.sessionId ?? 'sess-harness'));
   const scheduler: SessionId = asSessionId(options.schedulerSessionId ?? 'sess-harness-scheduler');
 
   // ── resume 恢复序 ②：会话 resume（合成 interrupted closer，只追加） ──
@@ -539,6 +640,33 @@ export async function assembleRuntime(options: AssembleRuntimeOptions): Promise<
           revision: 0,
         })),
         { entityId: 'params', revision: supervision.service.params().revision },
+      ],
+    },
+    {
+      entityKind: 'executor',
+      family: 'executor/change',
+      entries: () => [
+        ...[...executor.domain.table('executor_attempts').entries()].map(([, attempt]) => ({
+          entityId: String(attempt.id),
+          revision: attempt.revision,
+        })),
+        // params 行共用 executor/change 族（businessId='params'，无 CAS）：与索引口径一致
+        { entityId: 'params', revision: executor.service.params().revision },
+      ],
+    },
+    {
+      entityKind: 'plan',
+      family: 'planner/change',
+      entries: () => [
+        ...[...planner.domain.table('planner_plans').entries()].map(([, plan]) => ({
+          entityId: String(plan.id),
+          revision: plan.revision,
+        })),
+        ...[...planner.domain.table('planner_contingencies').entries()].map(([, contingency]) => ({
+          entityId: String(contingency.id),
+          revision: contingency.revision,
+        })),
+        { entityId: 'params', revision: planner.service.params().revision },
       ],
     },
     {
@@ -1178,6 +1306,544 @@ export async function assembleRuntime(options: AssembleRuntimeOptions): Promise<
     await securityService.seedCases(seedRows(options.securityFixtureDir));
   }
 
+  // ── P4（T4.1）：任务执行环（athlete）——零直写他域，全经服务面 seam ──
+  const toExecutorTaskView = (node: {
+    id: unknown; revision: number; goalId: unknown; subject: string; phase: string; stage: string;
+    ownerId?: unknown; blockedBy: readonly string[]; priority: number; budget: { zone: string };
+    runCount: number; consecutiveFailures: number; proposal?: { status: string } | undefined;
+    schedule: { dueAt?: number | undefined }; createdAt: number;
+    localPath?: string | undefined; writeScopes: readonly string[];
+  }): ExecutorTaskView => ({
+    id: String(node.id),
+    revision: node.revision,
+    goalId: String(node.goalId),
+    subject: node.subject,
+    phase: node.phase,
+    stage: node.stage,
+    ...(node.ownerId !== undefined ? { ownerId: String(node.ownerId) } : {}),
+    blockedBy: [...node.blockedBy],
+    priority: node.priority,
+    zone: node.budget.zone,
+    runCount: node.runCount,
+    consecutiveFailures: node.consecutiveFailures,
+    ...(node.proposal !== undefined ? { proposalStatus: node.proposal.status } : {}),
+    ...(node.schedule.dueAt !== undefined ? { dueAt: node.schedule.dueAt } : {}),
+    createdAt: node.createdAt,
+    ...(node.localPath !== undefined ? { localPath: node.localPath } : {}),
+    writeScopes: [...node.writeScopes],
+  });
+  const executor: TdaExecutorHandle = await tdaExecutorPlugin.apply({
+    storage,
+    invariants,
+    session: host,
+    taskPool: {
+      ready: () => taskPool.ready().map(toExecutorTaskView),
+      get: (id) => {
+        const node = taskPool.get(asTaskId(id));
+        return node === undefined ? undefined : toExecutorTaskView(node);
+      },
+      claim: (actor, id, ref, ownerId) =>
+        taskPool.claim(actor as 'scheduler', asTaskId(id), ref, asSessionId(ownerId)).then(toExecutorTaskView),
+      release: (actor, id, ref) => taskPool.release(actor as 'scheduler', asTaskId(id), ref).then(toExecutorTaskView),
+      block: (actor, id, ref, reason) => taskPool.block(actor as 'scheduler', asTaskId(id), ref, reason).then(toExecutorTaskView),
+      complete: (actor, id, ref, completion) =>
+        taskPool.complete(actor as 'scheduler', asTaskId(id), ref, completion).then(toExecutorTaskView),
+    },
+    dispatch: {
+      dispatch: (caller, req) =>
+        dispatch.service
+          .dispatch({ actor: caller.actor as 'scheduler', sessionId: asSessionId(caller.sessionId) }, {
+            taskId: asTaskId(req.taskId),
+            role: req.role,
+          })
+          .then((order) => ({
+            id: String(order.id),
+            taskId: String(order.taskId),
+            status: order.status,
+            revision: order.revision,
+          })),
+      driveOrder: async (caller, orderId) => {
+        const id = asDispatchId(orderId);
+        const current = dispatch.service.get(id);
+        if (current === undefined || current.status !== 'approved') {
+          throw new TdaError(
+            'DISPATCH_ORDER_NOT_DRIVABLE',
+            `派发单 ${orderId} 不存在或非 approved（${String(current?.status)}），禁驱动`,
+          );
+        }
+        const begun = await dispatch.service.start(
+          { actor: caller.actor as 'scheduler', sessionId: asSessionId(caller.sessionId) },
+          id,
+          { expectedRevision: current.revision },
+        );
+        if (!begun.started) {
+          throw new TdaError('DISPATCH_QUEUED', `派发单 ${orderId} 已入队（并发帽已满），待 pump 后开跑`);
+        }
+        const settled = await dispatch.service.settle(
+          { actor: caller.actor as 'scheduler', sessionId: asSessionId(caller.sessionId) },
+          begun.order.id,
+          { expectedRevision: begun.order.revision },
+        );
+        return { id: String(settled.id), taskId: String(settled.taskId), status: settled.status };
+      },
+      conclusionOf: (orderId) => {
+        const view = dispatch.service.conclusionOf(asDispatchId(orderId));
+        if (view === undefined) return undefined;
+        return {
+          taskId: String(view.taskId),
+          role: view.role,
+          outcome: view.outcome,
+          findings: [...view.findings],
+          confidence: view.confidence,
+          ...(view.entryId !== undefined ? { entryId: String(view.entryId) } : {}),
+        };
+      },
+    },
+    workflow: {
+      definitions: (filter) =>
+        workflow.service
+          .definitions({ status: 'consolidated', ...(filter?.kind !== undefined ? { kind: filter.kind } : {}) })
+          .map((def) => ({ defId: String(def.defId), name: def.name, kind: def.kind, status: 'consolidated' })),
+      start: (actor, defId, params, taskId) =>
+        workflow.service
+          .start(
+            { sessionId: asSessionId(actor.sessionId), actor: actor.actor as 'scheduler' },
+            defId as WorkflowDefId,
+            params,
+            asTaskId(taskId),
+          )
+          .then((run) => ({
+            runId: String(run.runId),
+            status: run.status,
+            ...(run.outcome !== undefined ? { outcome: run.outcome } : {}),
+            ...(run.unfinished !== undefined ? { unfinished: [...run.unfinished] } : {}),
+          })),
+    },
+    supervision: {
+      request: (input) =>
+        supervisionService
+          .request({
+            kind: input.kind as 'workflow-node',
+            requester: { service: input.requester.service, ref: input.requester.ref },
+            subject: input.subject,
+            whatToShow: {
+              summary: input.whatToShow.summary,
+              impact: input.whatToShow.impact.map((item) => ({ ...item })),
+              riskReasons: [...input.whatToShow.riskReasons],
+              evidence: input.whatToShow.evidence.map((item) => ({ ...item })),
+            },
+            resume: { from: input.resume.from, handle: input.resume.handle },
+            ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
+            ...(input.goalId !== undefined ? { goalId: input.goalId } : {}),
+            ...(input.riskHint !== undefined ? { riskHint: input.riskHint } : {}),
+          })
+          .then((request) => ({ approvalId: String(request.approvalId) })),
+      pending: (filter) =>
+        supervisionService.pending(filter).map((request) => ({
+          approvalId: String(request.approvalId),
+          kind: request.kind,
+          status: request.status,
+        })),
+    },
+    goal: {
+      get: (id) => {
+        const goal = requireGoal().service.get(asGoalId(id));
+        return goal === undefined ? undefined : { id: String(goal.id), completionCriteria: [...goal.completionCriteria] };
+      },
+    },
+    timeline: { get: (id) => timeline.service.get(asEntryId(id)) },
+    schedulerSessionId: String(scheduler),
+    bootAt,
+    bus,
+    now: clock,
+    ...(options.isMainActive !== undefined ? { isMainActive: options.isMainActive } : {}),
+  });
+
+  // ── P4（T4.5）：任务规划器（零执行权：seam 只含 get/list/create/edit/block） ──
+  const toPlannerTaskView = (node: {
+    id: unknown; revision: number; goalId: unknown; subject: string; phase: string; stage: string;
+    outcome?: unknown; blockedBy: readonly string[]; priority: number;
+    budget: { tokens?: number | undefined; toolCalls?: number | undefined; wallClockMs?: number | undefined; attentionUnits?: number | undefined; consumed: { tokens: number; toolCalls: number; wallClockMs: number; attentionUnits: number }; zone: string };
+    runCount: number; consecutiveFailures: number;
+    localPath?: string | undefined; writeScopes: readonly string[];
+  }): PlannerTaskView => ({
+    id: String(node.id),
+    revision: node.revision,
+    goalId: String(node.goalId),
+    subject: node.subject,
+    phase: node.phase,
+    stage: node.stage,
+    ...(node.outcome !== undefined ? { outcome: String(node.outcome) } : {}),
+    blockedBy: [...node.blockedBy],
+    priority: node.priority,
+    zone: node.budget.zone,
+    runCount: node.runCount,
+    consecutiveFailures: node.consecutiveFailures,
+    budget: {
+      caps: {
+        ...(node.budget.tokens !== undefined ? { tokens: node.budget.tokens } : {}),
+        ...(node.budget.toolCalls !== undefined ? { toolCalls: node.budget.toolCalls } : {}),
+        ...(node.budget.wallClockMs !== undefined ? { wallClockMs: node.budget.wallClockMs } : {}),
+        ...(node.budget.attentionUnits !== undefined ? { attentionUnits: node.budget.attentionUnits } : {}),
+      },
+      consumed: { ...node.budget.consumed },
+    },
+    ...(node.localPath !== undefined ? { localPath: node.localPath } : {}),
+    writeScopes: [...node.writeScopes],
+  });
+  const planner: TdaPlannerHandle = await tdaPlannerPlugin.apply({
+    storage,
+    invariants,
+    session: host,
+    taskPool: {
+      get: (id) => {
+        const node = taskPool.get(asTaskId(id));
+        return node === undefined ? undefined : toPlannerTaskView(node);
+      },
+      list: (filter) =>
+        taskPool
+          .list(filter?.goalId !== undefined ? { goalId: asGoalId(filter.goalId) } : undefined)
+          .map(toPlannerTaskView),
+      create: (actor, req) =>
+        taskPool
+          .create(actor as 'agent', {
+            goalId: asGoalId(req.goalId),
+            subject: req.subject,
+            ...(req.description !== undefined ? { description: req.description } : {}),
+            ...(req.parentTaskId !== undefined ? { parentTaskId: asTaskId(req.parentTaskId) } : {}),
+            ...(req.alternativeOf !== undefined ? { alternativeOf: { ...req.alternativeOf } } : {}),
+            ...(req.blockedBy !== undefined ? { blockedBy: req.blockedBy.map((dep) => asTaskId(dep)) } : {}),
+            ...(req.localPath !== undefined ? { localPath: req.localPath } : {}),
+            ...(req.writeScopes !== undefined ? { writeScopes: req.writeScopes } : {}),
+            ...(req.priority !== undefined ? { priority: req.priority } : {}),
+            ...(req.budget !== undefined
+              ? {
+                  budget: {
+                    ...(req.budget.tokens !== undefined ? { tokens: req.budget.tokens } : {}),
+                    ...(req.budget.toolCalls !== undefined ? { toolCalls: req.budget.toolCalls } : {}),
+                    ...(req.budget.wallClockMs !== undefined ? { wallClockMs: req.budget.wallClockMs } : {}),
+                    ...(req.budget.attentionUnits !== undefined ? { attentionUnits: req.budget.attentionUnits } : {}),
+                  },
+                }
+              : {}),
+            ...(req.planId !== undefined ? { planId: req.planId } : {}),
+          })
+          .then(toPlannerTaskView),
+      edit: (actor, id, ref, req) =>
+        taskPool
+          .edit(
+            actor as 'agent',
+            asTaskId(id),
+            { expectedRevision: ref.expectedRevision },
+            {
+              ...(req.subject !== undefined ? { subject: req.subject } : {}),
+              ...(req.priority !== undefined ? { priority: req.priority } : {}),
+              ...(req.blockedBy !== undefined ? { blockedBy: req.blockedBy.map((dep) => asTaskId(dep)) } : {}),
+              ...(req.stage !== undefined ? { stage: req.stage } : {}),
+              ...(req.budget !== undefined
+                ? {
+                    budget: {
+                      ...(req.budget.tokens !== undefined ? { tokens: req.budget.tokens } : {}),
+                      ...(req.budget.toolCalls !== undefined ? { toolCalls: req.budget.toolCalls } : {}),
+                      ...(req.budget.wallClockMs !== undefined ? { wallClockMs: req.budget.wallClockMs } : {}),
+                      ...(req.budget.attentionUnits !== undefined ? { attentionUnits: req.budget.attentionUnits } : {}),
+                    },
+                  }
+                : {}),
+            },
+          )
+          .then(toPlannerTaskView),
+      block: (actor, id, ref, reason) =>
+        taskPool.block(actor as 'agent', asTaskId(id), { expectedRevision: ref.expectedRevision }, reason).then(toPlannerTaskView),
+    },
+    goal: {
+      get: (id) => {
+        const goal = requireGoal().service.get(asGoalId(id));
+        if (goal === undefined) return undefined;
+        const budgetRemaining: Record<string, number> = {};
+        for (const dim of ['tokens', 'wallClockMs', 'attentionUnits'] as const) {
+          const cap = goal.budget[dim];
+          if (cap === undefined) continue;
+          budgetRemaining[dim] = Math.max(0, cap - goal.budget.consumed[dim]);
+        }
+        return {
+          id: String(goal.id),
+          objective: goal.objective,
+          completionCriteria: [...goal.completionCriteria],
+          budgetRemaining,
+        };
+      },
+    },
+    supervision: {
+      request: (input) =>
+        supervisionService
+          .request({
+            kind: input.kind as 'task-plan',
+            requester: { service: input.requester.service, ref: input.requester.ref },
+            subject: input.subject,
+            whatToShow: {
+              summary: input.whatToShow.summary,
+              impact: input.whatToShow.impact.map((item) => ({ ...item })),
+              riskReasons: [...input.whatToShow.riskReasons],
+              evidence: input.whatToShow.evidence.map((item) => ({ ...item })),
+            },
+            resume: { from: input.resume.from, handle: input.resume.handle },
+            ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
+            ...(input.goalId !== undefined ? { goalId: input.goalId } : {}),
+            ...(input.riskHint !== undefined ? { riskHint: input.riskHint } : {}),
+          })
+          .then((request) => ({ approvalId: String(request.approvalId) })),
+    },
+    ...(options.decomposer !== undefined ? { decomposer: options.decomposer } : {}),
+    bus,
+    now: clock,
+  });
+
+  // ── P4（T4.3）：任务图谱聚合读模型（只读三权威域，纯派生零事件） ──
+  const toGraphGoalView = (node: {
+    id: unknown; parentId?: unknown; objective: string; phase: string; stage?: unknown;
+    focus: boolean; clearedAt?: number | undefined;
+  }): GraphGoalView => ({
+    id: String(node.id),
+    ...(node.parentId !== undefined ? { parentId: String(node.parentId) } : {}),
+    objective: node.objective,
+    phase: node.phase,
+    ...(node.stage !== undefined ? { stage: String(node.stage) } : {}),
+    focus: node.focus,
+    ...(node.clearedAt !== undefined ? { clearedAt: node.clearedAt } : {}),
+  });
+  const toGraphTaskView = (node: {
+    id: unknown; goalId: unknown; subject: string; phase: string; stage: string;
+    budget: { zone: string }; parentTaskId?: unknown; blockedBy: readonly string[];
+    alternativeOf?: { taskId: string } | undefined; localPath?: string | undefined;
+    deletedAt?: number | undefined;
+  }): GraphTaskView => ({
+    id: String(node.id),
+    goalId: String(node.goalId),
+    subject: node.subject,
+    phase: node.phase,
+    stage: node.stage,
+    zone: node.budget.zone,
+    ...(node.parentTaskId !== undefined ? { parentTaskId: String(node.parentTaskId) } : {}),
+    blockedBy: [...node.blockedBy],
+    ...(node.alternativeOf !== undefined ? { alternativeOf: { taskId: node.alternativeOf.taskId } } : {}),
+    ...(node.localPath !== undefined ? { localPath: node.localPath } : {}),
+    ...(node.deletedAt !== undefined ? { deletedAt: node.deletedAt } : {}),
+  });
+  let graph: TdaGraphHandle | undefined;
+  if (options.graphEnabled !== false) {
+    graph = await tdaGraphPlugin.apply({
+      storage,
+      invariants,
+      goal: {
+        tree: (rootId) => requireGoal().service.tree(rootId === undefined ? undefined : asGoalId(rootId)).map(toGraphGoalView),
+        get: (id) => {
+          const goal = requireGoal().service.get(asGoalId(id));
+          return goal === undefined ? undefined : toGraphGoalView(goal);
+        },
+      },
+      taskPool: {
+        list: (filter) =>
+          taskPool.list(filter?.goalId !== undefined ? { goalId: asGoalId(filter.goalId) } : undefined).map(toGraphTaskView),
+        get: (id) => {
+          const node = taskPool.get(asTaskId(id));
+          return node === undefined ? undefined : toGraphTaskView(node);
+        },
+      },
+      workspace: {
+        graph: (taskId) => workspace.service.graph(taskId),
+      },
+      bus,
+      now: clock,
+    });
+  }
+
+  // ── P4（T4.2）：需求对接（原文零入域 + 服务端生成问题 + 审批后代建目标树） ──
+  const intake: TdaIntakeHandle = await tdaIntakePlugin.apply({
+    storage,
+    invariants,
+    session: host,
+    goalTree: {
+      create: (actor, req) =>
+        requireGoal().service
+          .create(actor as 'agent', {
+            objective: req.objective,
+            ...(req.completionCriteria !== undefined ? { completionCriteria: req.completionCriteria } : {}),
+            ...(req.parentId !== undefined ? { parentId: asGoalId(req.parentId) } : {}),
+            ...(req.budget !== undefined ? { budget: req.budget } : {}),
+            ...(req.maxGoalRounds !== undefined ? { maxGoalRounds: req.maxGoalRounds } : {}),
+            ...(req.pinned !== undefined ? { pinned: req.pinned } : {}),
+            ...(req.source !== undefined ? { source: req.source } : {}),
+            ...(req.intakeProposalId !== undefined ? { intakeProposalId: req.intakeProposalId } : {}),
+          })
+          .then((goal) => ({
+            id: String(goal.id),
+            objective: goal.objective,
+            ...(goal.source !== undefined ? { source: goal.source } : {}),
+            ...(goal.intakeProposalId !== undefined ? { intakeProposalId: goal.intakeProposalId } : {}),
+          })),
+      get: (id) => {
+        const goal = requireGoal().service.get(asGoalId(id));
+        return goal === undefined
+          ? undefined
+          : {
+              id: String(goal.id),
+              objective: goal.objective,
+              ...(goal.source !== undefined ? { source: goal.source } : {}),
+              ...(goal.intakeProposalId !== undefined ? { intakeProposalId: goal.intakeProposalId } : {}),
+            };
+      },
+    },
+    supervision: {
+      request: (input) =>
+        supervisionService
+          .request({
+            kind: input.kind as 'requirement-confirm',
+            requester: { service: input.requester.service, ref: input.requester.ref },
+            subject: input.subject,
+            whatToShow: {
+              summary: input.whatToShow.summary,
+              impact: input.whatToShow.impact.map((item) => ({ ...item })),
+              riskReasons: [...input.whatToShow.riskReasons],
+              evidence: input.whatToShow.evidence.map((item) => ({ ...item })),
+            },
+            resume: { from: input.resume.from, handle: input.resume.handle },
+            ...(input.goalId !== undefined ? { goalId: input.goalId } : {}),
+            ...(input.riskHint !== undefined ? { riskHint: input.riskHint } : {}),
+          })
+          .then((request) => ({ approvalId: String(request.approvalId) })),
+    },
+    timeline: {
+      // J2：原文唯一载体=T0.3 user-original chunk（PIPE 单漏斗，经唯一写入口 append）
+      appendUserOriginal: (content) =>
+        timeline.service
+          .append(
+            { sessionId: String(scheduler), actor: 'human', at: clock() },
+            {
+              content,
+              chunkType: 'fact',
+              source: 'conversation',
+              credential: 'user-original',
+            },
+          )
+          .then((entry) => ({ entryId: String(entry.id) })),
+    },
+    ...(options.intakeExtractor !== undefined ? { extractor: options.intakeExtractor } : {}),
+    ...(options.intakeDecomposer !== undefined ? { decomposer: options.intakeDecomposer } : {}),
+    bus,
+    now: clock,
+  });
+
+  // ── P4（T4.4）：状态台（纯投影层——聚合 goal/task/graph/supervision/drift 只读面） ──
+  let display: TdaDisplayHandle | undefined;
+  if (graph !== undefined && options.displayEnabled === true) {
+    // 目标预算三区投影（display 专用派生，非权威语义：max 消耗比 >0.85 converge / >0.6 watch / 其余 normal）
+    const goalZoneOf = (goal: {
+      budget: {
+        tokens?: number | undefined;
+        wallClockMs?: number | undefined;
+        attentionUnits?: number | undefined;
+        consumed: { tokens: number; wallClockMs: number; attentionUnits: number };
+      };
+    }): string => {
+      let ratio = 0;
+      for (const dim of ['tokens', 'wallClockMs', 'attentionUnits'] as const) {
+        const cap = goal.budget[dim];
+        if (cap === undefined || cap <= 0) continue;
+        ratio = Math.max(ratio, goal.budget.consumed[dim] / cap);
+      }
+      return ratio > 0.85 ? 'converge' : ratio > 0.6 ? 'watch' : 'normal';
+    };
+    display = await tdaDisplayPlugin.apply({
+      goal: {
+        list: () =>
+          requireGoal().service.tree().map((goal) => ({
+            goalId: String(goal.id),
+            objective: goal.objective,
+            phase: goal.phase,
+            stage: goal.phase,
+            zone: goalZoneOf(goal),
+            focus: goal.focus,
+          })),
+      },
+      taskPool: {
+        list: (filter) =>
+          taskPool
+            .list(filter?.goalId !== undefined ? { goalId: asGoalId(filter.goalId) } : undefined)
+            .map((node) => ({
+              id: String(node.id),
+              goalId: String(node.goalId),
+              phase: node.phase,
+              stage: node.stage,
+              proposalPending: node.proposal?.status === 'pending_approval',
+              ...(node.outcome !== undefined ? { outcome: node.outcome } : {}),
+              evidence: [...(node.evidence ?? [])],
+              updatedAt: node.updatedAt,
+            })),
+      },
+      graph: {
+        treeView: (rootGoalId) => graph.service.treeView(rootGoalId),
+        export: (format) => graph.service.export(format),
+      },
+      supervision: {
+        pending: (filter) =>
+          supervisionService.pending(filter).map((request) => ({
+            approvalId: String(request.approvalId),
+            kind: request.kind,
+            riskLevel: request.riskLevel,
+            subject: request.subject,
+            whatToShow: {
+              summary: request.whatToShow.summary,
+              riskReasons: [...request.whatToShow.riskReasons],
+            },
+          })),
+        attentionStatus: () => supervisionService.attentionStatus(),
+        events: () =>
+          supervisionService.events().map((event) => ({
+            kind: event.kind,
+            ...(event.approvalId !== undefined ? { approvalId: String(event.approvalId) } : {}),
+            at: event.at,
+          })),
+      },
+      drift: {
+        trend: (goalId) => {
+          // 全图视图：drift.snapshots 按 goalId 查——聚合各目标快照按时间归并（display 投影）
+          const records = (
+            goalId === undefined
+              ? requireGoal()
+                  .service.tree()
+                  .flatMap((goal) => drift.service.snapshots(goal.id as never))
+                  .sort((left, right) => left.at - right.at)
+              : drift.service.snapshots(goalId as never)
+          ) as readonly { composite: number; level: string; at: number }[];
+          if (records.length === 0) return undefined;
+          return {
+            band: String(records[records.length - 1]?.level ?? 'normal'),
+            trend: records.slice(-20).map((record) => record.composite),
+          };
+        },
+      },
+      timeline: {
+        // J7：报告落时间线（credential='execution-verified' 服务端强制）
+        append: (writer, chunk) =>
+          timeline.service
+            .append(
+              { sessionId: asSessionId(writer.sessionId), actor: writer.actor as 'scheduler', at: writer.at },
+              {
+                content: chunk.content,
+                chunkType: chunk.chunkType as 'fact',
+                source: chunk.source as 'harness',
+                credential: chunk.credential as 'execution-verified',
+              },
+            )
+            .then((entry) => ({ id: String(entry.id) })),
+      },
+      schedulerSessionId: String(scheduler),
+      bus,
+      now: clock,
+    });
+  }
+
   // 暴露面与 P2 同构：{ domain, service } 句柄（sources 闭包消费）
   const supervision = { domain: supervisionDomain, service: supervisionService };
   const knowledge = { domain: knowledgeDomain, service: knowledgeService };
@@ -1217,6 +1883,11 @@ export async function assembleRuntime(options: AssembleRuntimeOptions): Promise<
     knowledge,
     identity,
     security,
+    executor,
+    planner,
+    ...(graph !== undefined ? { graph } : {}),
+    intake,
+    ...(display !== undefined ? { display } : {}),
     host,
     resumeEvidence: () => ({ ...resumeEvidence, orphanDispatches: [...resumeEvidence.orphanDispatches] }),
     resumeCheck: () => trajectory.service.resumeCheck(resumeEvidence),
@@ -1241,10 +1912,26 @@ export async function assembleRuntime(options: AssembleRuntimeOptions): Promise<
       }
       const pumped = await dispatch.service.pump({ actor: 'scheduler', sessionId: scheduler });
       const dispatched = pumped.filter((item) => item.started).map((item) => String(item.order.id));
+      // P4（T4.1）：执行环阶段（ready → claim → 路由 → 驱动 → 验证 → 终态）；opt-in 开关
+      const executed: string[] = [];
+      if (options.executorEnabled === true) {
+        const attemptReports = await executor.service.runOnce(now);
+        for (const report of attemptReports) {
+          executed.push(
+            `${report.taskId}:${report.status}${report.outcome !== undefined ? `:${report.outcome}` : ''}${report.skipped !== undefined ? `:skipped:${report.skipped}` : ''}`,
+          );
+        }
+      }
+      // P4（T4.5 J7）：规划器触发扫描（checkTriggers + autoExpire 自动清理）；opt-in 开关
+      if (options.plannerEnabled === true) {
+        await planner.service.runTriggerScan(now);
+      }
+      // P4（T4.3 J3）：goal 侧重算（bus 快速路径兜底；幂等全量，O(N) 便宜）
+      await graph?.service.reconcile();
       // 落定点：等所有"已提交事实的回声"（时点扫描 + 审计索引）
       await workspace.link?.drain();
       await trajectory.link?.drain();
-      return { now, due: dueTasks.length, startedRuns, skipped, dispatched };
+      return { now, due: dueTasks.length, startedRuns, skipped, dispatched, executed };
     },
 
     // P1 周期驱动：宿主按各自周期调用（治理 6h / 抽取随 tick / 漂移 1h；
@@ -1309,12 +1996,61 @@ export async function assembleRuntime(options: AssembleRuntimeOptions): Promise<
       };
     },
 
+    async approveAndResume(approvalId, token) {
+      const ticket = await supervisionService.approve(approvalId as never, token);
+      const attemptId = String(ticket.handle);
+      // 桥接语义（T4.1 J7）：挂起 attempt 若携高风险派发单，人类票据 ⇒ dispatch.approve
+      // 把单推 approved，执行环续跑时 driveOrder 才能开跑。
+      const attempt = executor.service.attempt(attemptId);
+      if (attempt?.orderId !== undefined) {
+        const order = dispatch.service.get(asDispatchId(attempt.orderId));
+        if (order !== undefined && order.status === 'requested') {
+          await dispatch.service.approve(
+            { actor: 'human', sessionId: asSessionId('human-approval') },
+            asDispatchId(attempt.orderId),
+            { expectedRevision: order.revision },
+          );
+        }
+      }
+      return executor.service.resumeAttempt(attemptId, {
+        approvalId: String(ticket.approvalId),
+        nonce: String(ticket.nonce),
+        from: String(ticket.from),
+        handle: String(ticket.handle),
+      });
+    },
+
+    async approveAndActivate(approvalId, token) {
+      const ticket = await supervisionService.approve(approvalId as never, token);
+      return planner.service.activate(String(ticket.handle), {
+        approvalId: String(ticket.approvalId),
+        nonce: String(ticket.nonce),
+        from: String(ticket.from),
+        handle: String(ticket.handle),
+      });
+    },
+
+    async approveAndCommitIntake(approvalId, token) {
+      const ticket = await supervisionService.approve(approvalId as never, token);
+      return intake.service.commit(String(ticket.handle), {
+        approvalId: String(ticket.approvalId),
+        nonce: String(ticket.nonce),
+        from: String(ticket.from),
+        handle: String(ticket.handle),
+      });
+    },
+
     async verifyInvariants() {
       await invariants.verify();
     },
 
     async dispose() {
       // dispose 序固定：先让"回声"落定（各插件退订 + drain），再关域
+      await executor.dispose();
+      await planner.dispose();
+      await graph?.dispose();
+      await intake.dispose();
+      await display?.dispose();
       await scout.dispose();
       await workflow.dispose();
       await maintenance.dispose();

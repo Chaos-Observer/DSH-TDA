@@ -6,3 +6,4 @@
  */
 export * from './daemon.ts';
 export * from './runtime.ts';
+export * from './llmSeams.ts';
