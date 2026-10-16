@@ -18,7 +18,18 @@ export const taskChangePayload = (node: TaskNode): JsonObject => ({
   revision: node.revision,
   goalId: node.goalId,
   ...(node.parentTaskId !== undefined ? { parentTaskId: node.parentTaskId } : {}),
-  ...(node.alternativeOf !== undefined ? { alternativeOf: node.alternativeOf } : {}),
+  ...(node.alternativeOf !== undefined
+    ? {
+        alternativeOf: {
+          taskId: node.alternativeOf.taskId,
+          ...(node.alternativeOf.planId !== undefined ? { planId: node.alternativeOf.planId } : {}),
+          ...(node.alternativeOf.contingencyId !== undefined
+            ? { contingencyId: node.alternativeOf.contingencyId }
+            : {}),
+        },
+      }
+    : {}),
+  ...(node.planId !== undefined ? { planId: node.planId } : {}),
   subject: node.subject,
   description: node.description,
   phase: node.phase,

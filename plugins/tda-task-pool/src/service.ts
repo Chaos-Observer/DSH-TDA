@@ -41,6 +41,7 @@ import {
   remainingOf,
   zoneOfCaps,
   type TaskActor,
+  type TaskAlternativeOf,
   type TaskBlockedReason,
   type TaskBudget,
   type TaskBudgetCaps,
@@ -112,7 +113,9 @@ export interface CreateTaskRequest {
   readonly subject: string;
   readonly description?: string;
   readonly parentTaskId?: TaskId;
-  readonly alternativeOf?: TaskId;
+  readonly alternativeOf?: TaskAlternativeOf;
+  /** P4（T4.5 §3.4 v2）：规划溯源（planner 代建任务带 planId；T0.2 加载期断言对偶）。 */
+  readonly planId?: string;
   /** 执行依赖 DAG 边（无环、禁引用 tombstone）。 */
   readonly blockedBy?: readonly TaskId[];
   /** 任务本地路径（workspace 相对，T0.6 扫描起点）。 */
@@ -743,7 +746,8 @@ export function createTaskPoolService(deps: TaskPoolDeps): TaskPoolService {
       revision: 0,
       goalId: req.goalId,
       ...(parent !== undefined ? { parentTaskId: parent.id } : {}),
-      ...(req.alternativeOf !== undefined ? { alternativeOf: String(req.alternativeOf) } : {}),
+      ...(req.alternativeOf !== undefined ? { alternativeOf: { ...req.alternativeOf } } : {}),
+      ...(req.planId !== undefined ? { planId: req.planId } : {}),
       subject: req.subject,
       description: req.description ?? '',
       phase: 'active',

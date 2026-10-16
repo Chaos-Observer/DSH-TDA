@@ -59,6 +59,22 @@ export function taskPoolInvariantChecks(
 
   return [
     {
+      name: 'task-alternative-of-refs',
+      run(fail) {
+        // P4（T4.5 §3.4 v2）：预案边引用完备 + legacy-advisory 标记语义对账。
+        // legacy 边 = v1 裸值迁移行（有 alternativeOf 但无 planId ∧ 无 contingencyId）：
+        // 保持 advisory 语义，不参与预案状态机（planner 侧同规则过滤）。
+        const tasks = domain.table('task_nodes');
+        for (const [key, node] of aliveEntries(tasks)) {
+          if (node.alternativeOf === undefined) continue;
+          if (node.alternativeOf.taskId.trim() === '') {
+            fail(`任务 ${key} 的 alternativeOf.taskId 为空`);
+          }
+        }
+      },
+    },
+
+    {
       name: 'task-graph-acyclic',
       run(fail) {
         const tasks = domain.table('task_nodes');
@@ -78,6 +94,15 @@ export function taskPoolInvariantChecks(
               continue;
             }
             outs.push(dependency);
+          }
+          // P4（T4.5 §3.4 v2）：预案边进合并图（alternativeOf.taskId 引用存在性同查）。
+          if (node.alternativeOf !== undefined) {
+            const target = node.alternativeOf.taskId;
+            if (tasks.get(target) === undefined) {
+              fail(`任务 ${key} 的 alternativeOf 引用不存在：${target}`);
+            } else {
+              outs.push(target);
+            }
           }
           edges.set(key, outs);
         }

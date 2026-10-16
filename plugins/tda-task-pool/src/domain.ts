@@ -184,13 +184,32 @@ export type TaskProposal = z.infer<typeof TaskProposalSchema>;
  *  - `evidence`：完成证据（T0.1 J4 目标 verifying 的汇聚输入）
  *  - `unfinished`：预算耗尽时的未完成清单（J6/C5 硬要求，必须可机读）
  */
+/**
+ * P4（T4.5 §3.4）：预案边引用。v1 裸 TaskId 存量行经 union 归一为 { taskId }——
+ * 加载期按"无 planId ∧ 无 contingencyId"判 legacy-advisory（不参与预案状态机）。
+ */
+export type TaskAlternativeOf = { taskId: string; planId?: string | undefined; contingencyId?: string | undefined };
+
+export const TaskAlternativeOfSchema = z
+  .union([
+    z.object({
+      taskId: z.string(),
+      planId: z.string().optional(),
+      contingencyId: z.string().optional(),
+    }),
+    z.string(),
+  ])
+  .transform((value): TaskAlternativeOf => (typeof value === 'string' ? { taskId: value } : value));
+
 export const TaskNodeSchema = z
   .object({
     id: z.string().transform(asTaskId),
     revision: z.number(),
     goalId: z.string(),
     parentTaskId: z.string().optional(),
-    alternativeOf: z.string().optional(),
+    alternativeOf: TaskAlternativeOfSchema.optional(),
+    /** P4（T4.5 §3.4 v2）：规划溯源——存在 ⇒ 对应 plan 已 applied（planner loadChecks 对账）。 */
+    planId: z.string().optional(),
     subject: z.string(),
     description: z.string(),
     phase: z.enum(TASK_PHASES),
@@ -326,7 +345,8 @@ export type TaskTables = {
 
 export const taskPoolDomainSpec = defineTdaDomain({
   name: 'tda-task-pool',
-  version: 1,
+  version: 2,
+  compatibleVersions: [1],
   tables: {
     task_nodes: TaskNodeSchema,
     task_history: TaskChangeRecordSchema,
