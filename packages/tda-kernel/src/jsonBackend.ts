@@ -82,10 +82,11 @@ class JsonUnit implements TdaKvUnit {
       throw new TdaError('MALFORMED_MEDIUM', `存储文件结构不完整：${this.mainFile}`);
     }
     const file = parsed as JsonUnitFile;
-    if (file.version !== this.descriptor.version) {
+    const compatible = this.descriptor.compatibleVersions ?? [];
+    if (file.version !== this.descriptor.version && !compatible.includes(file.version)) {
       throw new TdaError(
         'VERSION_MISMATCH',
-        `存储文件版本 ${file.version} 与 domain 版本 ${this.descriptor.version} 不符：${this.mainFile}`,
+        `存储文件版本 ${file.version} 与 domain 版本 ${this.descriptor.version}（兼容 ${compatible.length > 0 ? compatible.join('/') : '无'}）不符：${this.mainFile}`,
       );
     }
     return new Map(Object.entries(file.records));

@@ -16,6 +16,11 @@ export type TdaLayout = 'single' | 'per-record';
 export interface TdaDomainSpec<Tables extends Record<string, z.ZodTypeAny>> {
   readonly name: string;
   readonly version: number;
+  /**
+   * P4（T4.5 §3.4）：可兼容读取的旧版本列表（schema 演进 seam，同 tda-recall v2 模式）。
+   * 声明后存量旧版本文件可开；新字段必须 optional，迁移与 legacy 打标归插件 loadChecks。
+   */
+  readonly compatibleVersions?: readonly number[];
   readonly tables: Tables;
   /** 缺省 'reject'；'backup-and-skip' 仅限派生表。 */
   readonly invalidRecords?: InvalidRecordsPolicy;
@@ -111,6 +116,12 @@ export interface TdaKvUnit {
 export interface TdaUnitDescriptor {
   readonly name: string;
   readonly version: number;
+  /**
+   * P4（T4.5 §3.4）：可兼容读取的旧版本列表（schema 演进 seam）。
+   * 存量文件版本 ∈ {version, ...compatibleVersions} 即可开；新字段须 optional
+   * （旧行缺省解析），迁移/打标记归各插件 loadChecks（同 tda-recall v2 模式）。
+   */
+  readonly compatibleVersions?: readonly number[];
 }
 
 export interface TdaStorageBackend {
@@ -312,7 +323,11 @@ export async function openTdaDomain<Tables extends Record<string, z.ZodTypeAny>>
   spec: TdaDomainSpec<Tables>,
   options: OpenTdaDomainOptions,
 ): Promise<TdaDomain<Tables>> {
-  const unit = options.backend.open({ name: spec.name, version: spec.version });
+  const unit = options.backend.open({
+    name: spec.name,
+    version: spec.version,
+    ...(spec.compatibleVersions !== undefined ? { compatibleVersions: spec.compatibleVersions } : {}),
+  });
   const domain = new TdaDomainImpl<Tables>(spec.name, spec, unit, options);
   await domain.load();
   return domain;

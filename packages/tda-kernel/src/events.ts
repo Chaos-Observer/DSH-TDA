@@ -28,7 +28,11 @@ export type EventFamily =
   // P3 扩展族（编号 17–19，对应 T3.1–T3.3；T3.4 验证层不立新族）。
   | 'knowledge/change'
   | 'supervision/change'
-  | 'identity/change';
+  | 'identity/change'
+  // P4 扩展族（编号 20–22，对应 T4.1–T4.5；T4.3 图谱/ T4.4 展示不立族）。
+  | 'executor/change'
+  | 'planner/change'
+  | 'intake/change';
 
 /** 溯源总线实体种类：audit_index 的索引维度。 */
 export type EntityKind =
@@ -50,7 +54,12 @@ export type EntityKind =
   | 'pluginScout'
   | 'knowledge'
   | 'approval'
-  | 'identity';
+  | 'identity'
+  | 'executor'
+  | 'plan'
+  | 'contingency'
+  | 'requirement'
+  | 'proposal';
 
 interface EventFamilyMeta {
   /** 事件族的生产者（与插件包名对齐，IT1 起逐插件落实）。 */
@@ -78,6 +87,9 @@ export const EVENT_FAMILIES: Record<EventFamily, EventFamilyMeta> = {
   'knowledge/change': { producer: 'tda-knowledge', entityKind: 'knowledge' },
   'supervision/change': { producer: 'tda-supervision', entityKind: 'approval' },
   'identity/change': { producer: 'tda-identity', entityKind: 'identity' },
+  'executor/change': { producer: 'tda-executor', entityKind: 'executor' },
+  'planner/change': { producer: 'tda-planner', entityKind: 'plan' },
+  'intake/change': { producer: 'tda-intake', entityKind: 'requirement' },
 };
 
 export const entityKindOf = (family: EventFamily): EntityKind => EVENT_FAMILIES[family].entityKind;

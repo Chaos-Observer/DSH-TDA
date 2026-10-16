@@ -49,6 +49,14 @@ export type SnapshotId = Brand<string, 'SnapshotId'>;
 export type CaseId = Brand<string, 'CaseId'>;
 export type RedTeamRunId = Brand<string, 'RedTeamRunId'>;
 export type FindingId = Brand<string, 'FindingId'>;
+// P4（T4.1 任务执行环）。
+export type AttemptId = Brand<string, 'AttemptId'>;
+// P4（T4.5 任务规划器）。
+export type PlanId = Brand<string, 'PlanId'>;
+export type ContingencyId = Brand<string, 'ContingencyId'>;
+// P4（T4.2 需求对接）。
+export type DraftId = Brand<string, 'DraftId'>;
+export type IntakeProposalId = Brand<string, 'IntakeProposalId'>;
 
 export const asSessionId = (value: string): SessionId => value as SessionId;
 export const asGoalId = (value: string): GoalId => value as GoalId;
@@ -89,6 +97,11 @@ export const asSnapshotId = (value: string): SnapshotId => value as SnapshotId;
 export const asCaseId = (value: string): CaseId => value as CaseId;
 export const asRedTeamRunId = (value: string): RedTeamRunId => value as RedTeamRunId;
 export const asFindingId = (value: string): FindingId => value as FindingId;
+export const asAttemptId = (value: string): AttemptId => value as AttemptId;
+export const asPlanId = (value: string): PlanId => value as PlanId;
+export const asContingencyId = (value: string): ContingencyId => value as ContingencyId;
+export const asDraftId = (value: string): DraftId => value as DraftId;
+export const asIntakeProposalId = (value: string): IntakeProposalId => value as IntakeProposalId;
 
 /** domain 记录单调修订号；CAS 以此检测并发覆写。 */
 export type Revision = number;
