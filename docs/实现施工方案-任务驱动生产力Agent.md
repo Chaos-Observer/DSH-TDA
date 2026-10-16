@@ -1,6 +1,6 @@
 # 实现施工方案 · 任务驱动生产力 Agent（TDA）
 
-> 上游：《需求描述-任务驱动生产力Agent.md》v2.1（WHAT）、《架构与路线蓝图》v2.1（HOW 选型）、23 份规格文档（T0.0–T3.4，单任务施工依据）、《实施任务路线.md》（Gate 顺序）。
+> 上游：《需求描述-任务驱动生产力Agent.md》v2.1（WHAT）、《架构与路线蓝图》v2.1（HOW 选型）、28 份规格文档（T0.0–T4.5，单任务施工依据）、《实施任务路线.md》（Gate 顺序）。
 > 定位：**施工组织**。规格回答"每个插件怎么建"，本文回答"工程怎么总装"：目录/包划分、共享内核、迭代切分、规格→插件映射。
 > 决策基线：五个决策点全部关闭（②T0.0 勘察/①T3.1 Graphiti/④T2.5 workflowEngine/⑤T3.2 高风险需审/③默认嵌 DSH 存储抽象可逆）；DSH 基座 = `D:\WorkSpace\Learn\project\Reference\deepseek-harness`。
 
@@ -18,7 +18,7 @@
 | 审计总线 | 每次 accepted 变更双写 log-only session event（T0.7 J2 规范） | session log 是证据链与回放源 |
 | 溯源总线 | `audit_index` 派生索引（实体→seq 范围，T0.7 J7） | 可重建，非权威 |
 
-**施工顺序**：P0 分 5 个迭代（IT0 内核 → IT1 数据面双基座 → IT2 任务池 → IT3 执行/上下文三并行 → IT4 轨迹收官），过 Gate G0 后按路线进 P1–P3。23 份规格 → 18 个插件包 + 1 内核 + 1 Harness daemon（映射表见 §5）。
+**施工顺序**：P0 分 5 个迭代（IT0 内核 → IT1 数据面双基座 → IT2 任务池 → IT3 执行/上下文三并行 → IT4 轨迹收官），过 Gate G0 后按路线进 P1–P4。28 份规格 → 25 个 `tda-*` 业务包（T3.4 仅测试资产不进运行时；T2.4 复用 recall）+ tda-smoke 样本 + kernel + testkit + Harness daemon（映射表见 §5）。
 
 **全局纪律**（所有迭代强制，源自规格共同裁定）：
 1. **模式复制**：DSH 绑 session 的能力（goals/agentTeams/schedule/jobs）一律不扩展，复制其模式进自有 sqlite domain（T0.1 J1/T0.2 J1 同款原则）；
@@ -50,7 +50,7 @@ tda/                                  # pnpm workspace + TypeScript strict
 │  ├─ tda-subagent-dispatch/          # T0.5 → ctx.subagentDispatch
 │  ├─ tda-workspace/                  # T0.6 → ctx.workspace
 │  ├─ tda-trajectory/                 # T0.7 → ctx.trajectory（薄审计层）
-│  └─ （P1–P3 插件同构递增，见 §5 映射表）
+│  └─ （P1–P4 插件同构递增，见 §5 映射表；P4 = tda-executor / tda-intake / tda-graph / tda-planner / tda-display）
 ├─ harness/
 │  └─ tda-harness/                    # L1 自建 Harness daemon：常驻调度宿主（T0.2 J8/§3.6）
 ├─ profiles/
@@ -370,7 +370,67 @@ IT5 T1.2 gov ────┘   IT6 T1.5 drift ─────┘
 - **harness 装配 23 插件**：knowledge（timeline/governance 双向桥，Graphiti v1 降级=事件图投影）；identity（rehearsal 桥 v1 确定性 coverage 探针）；security（env=ci-mock + 三面真探针：记忆注入走 **recall gate**〔FTS 可见≠注入，防线在 gate 不在检索层〕、token 重放走 supervision 真审批、毒身份走真 hash 校验）+ sources 扩 P3 三族 + driveP3()。
 - **新踩的坑（P3 补记）**：①空身份 manifest v1 是概念行不落库，版本基线从 1 起算（首个变更产 v2）；②迁移/发现类"第二事件"窗口必须有自己的域写（否则 unmatchedWrites 反向洞）；③红队探针的判定层必须打在**防线本体**（gate）而非上游可见性（检索）——判定层选错会把防线误判 breached。
 
-## 5. 23 份规格 → 插件映射表
+### P4 迭代切分（IT14–IT18）
+
+> 2026-10-13 立。P4 = 产品化层（缺口对账六项 + 系统性前置），五份规格（T4.1–T4.5）已成文；施工原则同构复制 P0–P3（数据面→执行面→旁路观察层→收官对账）。
+> **IT14 状态：✅ 已完成**（2026-10-13 收口）。实测：`tda-executor` 35/35、harness 28/28（含 P4 集成门 3 例）。
+> **IT15 状态：✅ 已完成**（2026-10-13 收口）。实测：`tda-planner` 38/38、harness 31/31（含 P4 planner 集成门 3 例）；全仓 **26 包 607 用例**全绿 + 类型门 0 失败。**三处 domain v2 扩展（T0.1/T0.2/T3.2）随 IT15 实际落地**——IT14 状态头原记"含 v2 先行落地"系不实声明，已更正（当时只交付了 executor 本体）。
+> **IT14b 状态：✅ 已完成**（2026-10-13 收口）。实测：`tda-graph` 24/24、harness 33/33（含 P4 graph 集成门 2 例）；全仓 **27 包 633 用例**全绿 + 类型门 0 失败。
+> **IT16 状态：✅ 已完成**（2026-10-13 收口）。实测：`tda-intake` 26/26、harness 35/35（含 P4 intake 集成门 2 例）；全仓 **28 包 661 用例**全绿 + 类型门 0 失败。**P4 五插件（executor/planner/graph/intake + T0.1/T3.2 v2）全部落地**，Gate G4 仅差 IT17 tda-display。
+> **IT17 状态：✅ 已完成**（2026-10-14 收口）。实测：`tda-display` 15/15、harness 37/37（含 P4 display 集成门 2 例）；全仓 **29 包 678 用例**全绿 + 类型门 0 失败。**P4 五插件全部落地，Gate G4 四项全闭环**（①需求进得来=IT16 ②任务自动转=IT14 ③图谱问得出=IT14b ④人看得见=IT17）。
+> **系统性前置不占迭代编号**：DSH 真运行时接入（vendor DSH 锁定 commit + `profiles/cordis.yml` 全量层叠 + 四替身换真 seam + 任务池 9 工具注册进 DSH `ctx.tools`）是 P4 实现的**运行前提**，排期为独立工程项，与 IT14–IT18 并行推进（见路线文档 P4 表首行）。
+
+```
+IT14 T4.1 executor ∥ T4.3 graph ∥ 三处 domain v2 扩展（互不依赖，可三人并行）
+IT14 ──► IT15 T4.5 planner（T0.2 v2 + executor deviation 面）
+IT15 ──► IT16 T4.2 intake（T0.1 v2 + 共享 LLM seam）
+IT14/IT15/IT16 ──► IT17 T4.4 display ──► Gate G4 对账
+```
+
+- **IT14**（三并行）：**T4.1 tda-executor**——tick 驱动执行环（`select`/`claim`/路由三模式 workflow·dispatch·direct/完成前验证门/重试帽+显式终态/ResumeTicket 审批接续/让位纪律；第二十族 `executor/change` + attempt 权威域）∥ **T4.3 tda-graph**——只读聚合（三源归一 goal 树/task DAG/file 图谱、物化派生表可整表重建、查询六面、export json+dot；总线只是任务侧快速路径、`goalTree/change` 不上总线故 goal 侧 tick 重算、boot 必重建）∥ **三处 domain v2 扩展**（T0.1 `goal_nodes` +`source`/`intakeProposalId`；T0.2 `alternativeOf` 结构 + `planId`；T3.2 `APPROVAL_KINDS` +4；`compatibleVersions` 迁移规则见各规格 §3.4）；
+- **IT15**：**T4.5 tda-planner**——质量门五查（criteria 覆盖/预算守恒/无环/叶子可执行/预案覆盖）、计划快照不可变、预案状态机（`dormant→triggered→activated` 四步 CAS 切换 + carve-out 预算转注）、supersede 链局部重规划（增量应用禁整树重建）；第二十二族 `planner/change`；消费 IT14 executor 的 `DeviationReport` 面；
+- **IT16**：**T4.2 tda-intake**——三阶段流水线（intake/clarify/confirm）、澄清问题服务端纯函数生成、目标树分解走 Lead + 确定性校验门、commit 凭 ResumeTicket 按拓扑序代建；第二十一族 `intake/change`；LLM seam 与 planner 同模式（串行保一致）；
+- **IT17**：**T4.4 tda-display**——只读 HTTP（bind 127.0.0.1，默认端口 7391）、三视图（树谱/状态总览/审批与审计）、report 产物落时间线（execution-verified）、fail-open 隔离 → **Gate G4 对账**（① 需求进得来 ② 任务自动转 ③ 图谱问得出 ④ 人看得见）；
+- **出口**：`ctx.executor/taskGraph/taskPlanner/intake/statusDisplay` 五服务面就绪；harness tick 扩 executor 阶段 + graph 触发对账阶段 + display 服务启动；trajectory sources 扩 P4 三族（executor/intake/planner）；kill -9 冒烟增"执行环在飞/激活切换中"场景。
+
+#### IT15 收口补记（装配期暴露的四处问题，均已修复 + 回归用例）
+
+1. **`Object.assign` 吞 setter**（测试假体陷阱）：`Object.assign(fn, { get x(){}, set x(){} })` 会把访问器**求值拷贝为数据属性**——setter 静默丢失，测试开关形同虚设（`nextBad` 设了不生效，坏提议全变成好提议）。修法：`Object.defineProperties` 原样挂载。**泛化教训：给函数对象挂 get/set 禁 Object.assign**；
+2. **票据预检失败误收口**（真 bug）：`applyPlan` 把 `verifyTicket` 放在 try 内，调用方传错 ticket（身份不符）竟把计划收口成 `cancelled`。修法：票据/质量门预检移出 try（`verifyApplyTicket`）——**调用方错误不改状态，只有代建过程失败（STALE/任务消失）才 settleCancelled**；
+3. **终态主路径禁 block**（规格与 T0.2 语义冲突）：`task-failed` 触发激活时主路径已 failure 终态，T0.2"终态不可变"⇒ `block()` 抛 `TASK_COMPLETE`。修法：activate 第②步对已终态主路径**跳过 block**（它已是"让位"的事实结果）；`blocked[plan-b-activated]` 标记仅对活着的主路径（budget-zone/verify-failed 触发）——两条路径均有回归用例；
+4. **计划审批 ≠ 任务提议审批**（两层门，规格未写明）：planner 以 `actor='agent'` 代建 ⇒ T0.2 `proposedBy='agent'` ⇒ 任务落 `proposal pending_approval`，`isReady` 排除之——需人类逐条 `approveProposal` 后才 ready。v1 保持两层门（保守侧），集成门显式走两步；是否合并为单门留 U 项。
+
+另落地：内核 `compatibleVersions` seam（DomainSpec 可选字段 + jsonBackend 版本比对接受兼容集——T4.5 §3.4"承 DSH 约定"在内核无实现，按规格补的 schema 演进 seam）；T4.5 规格 §4.2 的 `plan(goalId)` 生成器与 `plan(id)` 读取器同名重载在对象字面量不可行（TS 重复键，编译器直接崩）——按仓库惯例生成器定名 `proposePlan`。
+
+#### IT14b 收口补记（装配期一处问题，已修复）
+
+1. **dispose 后总线回声触发 reconcile ⇒ DOMAIN_CLOSED 未处理拒绝**：graph 的 bus 快速路径（订阅 `taskPool/change` → `void reconcile()`）在测试收尾时被已取消测试的回声事件触发，domain 已关 ⇒ unhandled rejection（vitest 记 2 errors，测试本体全过但属"假绿风险"）。修法：快速路径回调显式 `.catch(() => undefined)`——**旁路尽力而为，失败静默；tick reconcile 才是兜底主路径（fail-loud 保留在那里）**。泛化教训：**fire-and-forget 的总线回调必须自带 catch**（dispose 竞态是常态而非异常）。
+
+其余要点：graph 默认装配**无 opt-in 开关**（与 executor/planner 不同——它零权威写、纯派生，不会撞手动流）；文件邻域桥接对未扫描任务返回空（不致命）；测试夹具曾自造文件边环（depends-on x→y + supersedes-file y→x）被 fail-loud 正确拒绝——fixture 修正而非放宽检测。
+
+#### IT16 收口补记（装配期暴露的一处规格缝隙，已修复）
+
+1. **requirement-* 审批无计费落点**（规格缝隙，集成门实测抓到）：T3.2 不变量 7 要求审批项 taskId/goalId 至少其一（chargeAttention 强制），但 **requirement-confirm/clarify 发生在 goal/task 创建之前**——需求阶段审批天然无计费落点，真装配下 confirmRequest 直接抛 `SUPERVISION_BILLING_TARGET`。修法：supervision 服务期 chargeAttention + 加载期检查对 `requirement-*` kind **豁免计费落点**（其注意力记账挂 draftId/proposalId，经 requester.ref 溯源）；chargeAttention 的 ref 增加 `kind` 字段（调用点同步透传）。**教训：跨规格接线（T4.2×T3.2）在插件门假体下不可见——审批队列的真实强校验只有真装配才现形**（与 IT14 的 consume/STALE 同模式，集成门第四次抓到插件门盲区）。
+
+其余要点：T0.1 create 路径扩展（CreateGoalRequest +source/intakeProposalId + 服务期断言 `source='intake' ⇒ intakeProposalId 必填`——加载期断言的服务期对偶）；**schema v2 字段必须同步事件载荷键序**（T0.1 加字段后 goalChangePayload 未同步 ⇒ 全量复跑时 idle-kill 门回放分歧假红——键序纪律 #26 的反面案例：改 schema 必查 events.ts）；
+
+#### IT17 收口补记（装配期一处枚举涟漪，已修复）
+
+1. **`source='harness'` 枚举涟漪**（规格假设未核对的唯一落点）：T4.4 J7 要求报告 `source='harness'`，但 T0.3 `TIMELINE_SOURCES` 只有 task/conversation/study——落地时按规格扩枚举（附加值向后兼容），并**顺藤摸瓜修了 4 处窄视图类型**（timeline `TimelineChunk` 接口 + governance/context/dispatch/workspace 四个 seam 的窄 source 联合）。教训：**给枚举附加值时 grep 全仓窄联合**——z.enum 更新只解决 schema 校验，手工窄类型声明会漏。
+
+其余要点：display 聚合的 `fallback` 支持**惰性函数形式**（降级记名在 fallback 体内执行；初版误写成 IIFE 立即执行 ⇒ 健康路径也记降级——类型上 `T | (() => T)` 让两种形式并存）；页面静态零动态数据（数据全走 /api/snapshot + DOM textContent——注入面在浏览器侧天然关闭，比 escape-and-innerHTML 少一类漏洞）；drift 全图趋势=各目标快照时间归并取尾 20（drift.snapshots 按 goalId 查询，无全图 API）；display 默认**不装配**（displayEnabled 开关，测试环境零端口占用——与 executor/planner 的 opt-in 同纪律）。timeline WriterRef.actor 枚举是 `agent/human/coach/scheduler`（无 'user'——原文 chunk 以 'human' 归因）；双表回放对账需按 payload 键形状分账（draft 有 rawEntryId / proposal 有 draftId——compareReplay 的 mapper 必须按表过滤事件，双实体族与 executor 单表不同）；audit_index 的 entityKind 来自内核 FAMILY_MAP（每 family 单一种类——intake/change 全记 'requirement'，trajectory 的 ENTITY_FAMILY 双映射供回放对账，index 种类以内核为准）。
+
+#### IT14 收口补记（装配期暴露的三处问题，均已修复 + 回归用例）
+
+1. **consume 推高 revision ⇒ complete 撞 STALE**（真 bug，插件门假体不调 consume 故不暴露）：dispatch settle 的 `taskPool.consume` 会把任务 revision 推高，执行环却持 claim 时的旧 ref 去 `complete` ⇒ `STALE_REVISION`。修法：终态动作前经 `liveTask()` 重读 revision。**教训泛化：跨服务驱动链上"我方持有的 ref"随时可能被对方服务推高——CAS 动作前必须重读**（P4 集成门实测抓到，回归用例在 harness）；
+2. **高风险双审批重复**：执行环原按"任务级预检 + 监督请求"实现高风险门，与 dispatch 层自有闸（T0.5 J9：建单即 `requested`）判据同源 ⇒ 人类要批两次。修法：**审批单点收敛到 dispatch 层**——执行环不预检，`dispatch()` 建单见 `requested` 才登记监督请求挂起；续跑时复用既有单（`driveOrder`），重试才建新单（清 orderId/runId）。seam 由 `execute` 改为 `dispatch`+`driveOrder` 两步；
+3. **tick 自动认领撞既有集成测试**：执行环进 tick 后，IT2/IT3 手动流集成测试的 claim/complete 撞 STALE（执行环已把任务认领走）。修法：`executorEnabled` **opt-in 开关（默认 false）**——P4 集成门显式开启；DSH 真装配落地后随主循环形态改默认开。这是"新增自动层与既有手测流解耦"的通用模式。
+
+另落地：内核 `events.ts` 第二十族 `executor/change` + `EntityKind='executor'`（T4.x 规格初稿按"十二族"编号有误——内核 P2=12–16、P3=17–19 已占用，P4 从 20 起；规格与映射表已同步更正）；`tda-trajectory` `AUDIT_ENTITY_KINDS`/`ENTITY_FAMILY` 扩 executor；`resumeAttempt` 校验序调整为"ticket 身份/重放先拦，状态后查"（重放=攻击信号，避免状态泄漏）。
+
+---
+
+## 5. 28 份规格 → 插件映射表
 
 | 规格 | 插件包 | ctx 服务 | 层 | 阶段 | domain 表（权威/派生） | 事件族 | invalidRecords |
 |---|---|---|---|---|---|---|---|
@@ -397,13 +457,22 @@ IT5 T1.2 gov ────┘   IT6 T1.5 drift ─────┘
 | T3.2 | tda-supervision | ctx.supervision | 横切 | P3 | approval_requests/attention_ledger | supervision/change | reject |
 | T3.3 | tda-identity | ctx.identity | 横切 | P3 | manifests/snapshots/migration_records | identity/change | reject |
 | T3.4 | tda-security | ctx.security | 横切（验证层） | P3 | redteam_cases/verdicts（派生，env=ci-mock） | 不立新族（发现闭环回功能规格事件） | backup-and-skip |
+| T4.1 | tda-executor | ctx.executor | L4 | P4 | executor_attempts/executor_params（权威） | executor/change（20） | reject |
+| T4.2 | tda-intake | ctx.intake | L5 | P4 | intake_drafts/intake_proposals/intake_params（权威） | intake/change（21） | reject |
+| T4.3 | tda-graph | ctx.taskGraph | 横切 | P4 | graph_nodes/graph_edges/graph_params（**全派生可重建**） | 不立族（dualWriteDerived） | backup-and-skip |
+| T4.4 | tda-display | ctx.statusDisplay | 横切 | P4 | 无（纯投影；report 走 T0.3 时间线） | 不立族（无域） | — |
+| T4.5 | tda-planner | ctx.taskPlanner | L5/L4 | P4 | planner_plans/planner_contingencies/planner_params（权威） | planner/change（22） | reject |
 | — | tda-harness | daemon 宿主（无 ctx 服务） | L1 | P0 起 | 不持业务权威 | 订阅全族 | — |
 
 映射要点：
 1. **层归属照蓝图 §2**：L5 目标/元认知、L4 任务执行、L3 资产库、L2 记忆、L1 运行时、横切治理/身份/监督/安全——插件目录不按层分目录（扁平 `plugins/`），层只在映射表与依赖规则中体现；
-2. **T2.4 不新立插件**（T2.4 J1：v2 是 T1.1 计分器扩展+主动通道，pipeline/gate 位置不动）——映射表 23 规格 → 20 个 `tda-*` 业务包（含 v2 复用）+ kernel + testkit + harness；
+2. **T2.4 不新立插件**（T2.4 J1：v2 是 T1.1 计分器扩展+主动通道，pipeline/gate 位置不动）——映射表 28 规格 → 25 个 `tda-*` 业务包（含 v2 复用）+ kernel + testkit + harness；
 3. **T3.4 零运行时能力**（J1）：只建测试/CI 资产（fixtures + 用例库 + verdicts），不挂模型工具、不加服务——`tda-security` 本质是 `fixtures/` + CI 门，不进 bundle 运行时；
 4. **事件族编号以规格为准**（T2.5 第七/T2.6 第八/T3.1 第九/T3.2 第十/T3.3 第十一），内核 `events.ts` 是唯一登记处，未登记族双写即抛。
+5. **P4 五插件全部以"只读面/受审批写面"组合既有服务**：executor/planner/intake 只经 `taskPool/dispatch/workflow/supervision/goalTree` 服务面驱动（零直写他域，deps 类型级保证）；graph 零写权（纯派生）、display 零写权（纯投影，唯一写=report 经 T0.3）——同 T3.2 J5"监督服务只发票不代跑"的防总编排器原则族；
+6. **P4 三处 domain v2 扩展**（T0.1/T0.2/T3.2，`compatibleVersions` 承 DSH 约定）：v2 字段与 4 种审批 kind 一次扩齐，存量行迁移规则（T0.2 裸 alternativeOf → 结构打 `legacy-advisory` 标记等）见各规格 §3.4 专表；
+7. **事件族 20–22**（executor/intake/planner）在内核 `events.ts` 登记（P2=12–16、P3=17–19 已占用，P4 从 20 起）；T4.3/T4.4 不立族（派生层/投影层无声学，防"索引事件引发新索引"自指）；
+8. **模型工具面仍零新增**：P4 五插件均无 `dsh-tda-tool-*` 工具集（全局纪律 3 延续）；目标/任务创建入口收敛为 intake/planner 代建（人类审批后），模型面只留观测（既有 `task_list`/`task_get`）。
 
 ---
 
@@ -432,7 +501,7 @@ IT5 T1.2 gov ────┘   IT6 T1.5 drift ─────┘
 - P1–P3 的迭代切分在本方案骨架上同构复制（每阶段：数据面→执行面→旁路观察层→收官对账），具体切分随各阶段开工前细化，不预先锁死；
 - 规格 §6 验收结果回填、路线进度标记、memory 追加沿用既定工作模式不变。
 
-### 7.1 实现进度（截至 2026-09-24）
+### 7.1 实现进度（截至 2026-10-13）
 
 | 迭代 | 范围 | 状态 | 实测 |
 | --- | --- | --- | --- |
@@ -445,6 +514,13 @@ IT5 T1.2 gov ────┘   IT6 T1.5 drift ─────┘
 | **IT8** | T2.1 tda-coach ∥ T2.2 tda-skill-registry（治理 promoteAsset 通道 + use-fail 信号） | ✅ 完成 | coach 23、skill-registry 20 |
 | **IT9** | T2.4 recall v2（同包扩展）∥ T2.3 tda-maintenance | ✅ 完成 | recall 41（含 v2 门 8）、maintenance 12 |
 | **IT10** | T2.5 tda-workflow ∥ T2.6 tda-plugin-scout + harness 装配 19 插件（P2 五件 seam + sources 扩五族 + driveP2 + P2 集成门）→ **Gate G2** | ✅ 完成 | workflow 13、plugin-scout 9、harness 22（含 P2 集成门 3）；全仓 21 包类型门干净 |
+| **IT11–IT13** | P3 四件（T3.1 knowledge ∥ T3.2 supervision ∥ T3.3 identity + T3.4 security 验证层）+ harness 23 插件装配 + P3 集成门 → **Gate G3** | ✅ 完成 | knowledge 16、supervision 15、identity 11、security 8、harness 25（含 P3 集成门 3）；24 包 528 用例（2026-09-28 终验；2026-10-13 全量复跑仍全绿） |
+| **P4 规格** | T4.1–T4.5 五份规格（执行环/intake/图谱/规划器与预案/展示） | ✅ 成文 | 2026-10-13 一日收官；UI 形态拍板（关 T3.2 U4=harness 只读 HTTP） |
+| **IT14** | T4.1 tda-executor（athlete 执行环） | ✅ 完成 | executor 35/35、harness 28/28（含 P4 集成门 3） |
+| **IT15** | T4.5 tda-planner（+ 三处 domain v2 实际落地：T0.1 +source/intakeProposalId；T0.2 alternativeOf 结构+planId；T3.2 APPROVAL_KINDS +4；内核第二十二族 planner/change + PlanId/ContingencyId 品牌 + compatibleVersions seam） | ✅ 完成 | planner 38/38、harness 31/31（含 planner 集成门 3）；全仓 26 包 607 用例全绿 |
+| **IT14b** | T4.3 tda-graph（三源归一只读投影 + 六查询面 + 整表重建 + fail-loud 环复核；不立族纯派生 dualWriteDerived） | ✅ 完成 | graph 24/24、harness 33/33（含 graph 集成门 2）；全仓 27 包 633 用例全绿 |
+| **IT16** | T4.2 tda-intake（三阶段流水线/澄清帽+escalation/校验门/审批代建/supersede 链；T0.1 create 路径 source/intakeProposalId；T3.2 requirement-* 计费豁免） | ✅ 完成 | intake 26/26、harness 35/35（含 intake 集成门 2）；全仓 28 包 661 用例全绿 |
+| **IT17** | T4.4 tda-display（纯投影层：snapshot 聚合/markdown 报告落时间线/harness 内嵌只读 HTTP 127.0.0.1:7391 三视图功能界面；T0.3 source 枚举 +harness；无域无族无双写） | ✅ 完成 | display 15/15、harness 37/37（含 display 集成门 2）；全仓 29 包 678 用例全绿 |
 
 执行命令（Windows/pnpm 不可直接 PATH 调用时用仓库内 `.shim/pnpm.cmd`；vitest 可 `node node_modules/vitest/vitest.mjs run --root <包>` 直跑）：
 
@@ -455,6 +531,16 @@ pnpm run gate:dualwrite                # 门3 双写配对
 pnpm run gate:smoke                    # 门4 冒烟（kill-9 / replay / 配对）
 ```
 
-**当前红灯项：无。** 全仓 **12 包**类型检查干净；四门全绿；合计 **234 用例**。IT2 收口补记见 §4 的五条内核缺口、IT3 收口补记见 §4 的六条、IT4 收口补记见 §4 的七条（两处内核/契约 + 两处轨迹层真缺陷 + 三条口径裁定），均已修复并带回归用例。
+**当前红灯项：无。** 全仓 **29 包**类型检查干净、四门全绿、合计 **678 用例**（528 = P0–P3 终验；+35 executor / +38 planner / +24 graph / +26 intake / +15 display = 138 新插件用例；+12 P4 集成门（3+3+2+2+2）= 676；2026-10-13~14）。已知环境性假红：全量并行跑时 tda-timeline 偶发 1 例（OS 删除路径间歇挂起的并行 I/O 假红，单跑复绿——2026-09-28 同款前科，非回归）。IT2/IT3/IT4/P1/P2/P3/IT14/IT15/IT14b/IT16/IT17 收口补记见 §4 对应各节，均已修复并带回归用例。
 
-**下一步（P1 开工）**：Gate G0 已过 → 按《实施任务路线》进 P1（T1.1 引力场最小召回 ∥ T1.2 记忆治理管道 ∥ T1.3 轨迹预测器 ∥ T1.4 元思维库 ∥ T1.5 目标漂移检测）。P1 可直接消费的 P0 出口：①`ctx.trajectory.locate/auditView`（transition 序列与实体→seq 定位，T1.3 轨迹预测器的输入）；②`trajectoryLink` 字段（T0.3 chunk / T0.5 dispatch / T0.6 scan 三处已就绪，T1.1 子目标级示例反查）；③`credentialMin` 预筛与 `quarantined` 标记（T1.1 provenance gate 的数据面）；④`registerScorer` seam（T1.1 引力场计分器挂载点）；⑤`corpus`/`audit_index` 的容量治理归 T1.2。
+### 8. 系统性前置：DSH 真装配（2026-10-14 勘察定稿）
+
+P4 收官后唯一剩余前置。勘察与施工图见《DSH真装配-勘察与施工图》：DSH v0.1.7-alpha.2 真源码实证 **DomainSpec/KvUnit 与 TDA 内核同构**（compatibleVersions/invalidRecords 原生）、cordis patch 语义与 cordis.yml 全量层叠（27 行）已核、四替身换真=适配器级工作（非重写）、插件范式=每插件一个 cordis 入口（既有 24 插件 src 零改动）。分五阶段（P5.0 vendor→P5.1 storage→P5.2 session→P5.3 llm/compaction→P5.4 工具注册+端到端），出口=Gate G4 四项在 DSH 真运行时上复验。
+
+> **P5.0 状态：✅ 已完成**（2026-10-14 收口）。`vendor/dsh/` 34 包 3.9MB 落地（运行闭包 31 + cordis 生态 3，锁 commit 00102833df；重放脚本 `scripts/vendor-dsh.mjs` + `link-vendor.mjs` 幂等）；出口达成——`@deepseek-ai/dsh-storage-*` 类型层（tsc paths 门面 `vendor/dsh/vendor-types.d.ts`）+ 运行层（vitest junction 直吃 .ts）双通；**vendor 门 2/2 转正**（defineDomain 同构 + SqliteStorageBackend 实库 KV 往返）。终态：29 包 680 用例全绿 + 类型门 0 失败。装配期发现（命名映射/KV 原语名/ambient-vs-实体解析/exports 条件键）见施工图 §5 P5.0 补记。
+
+> **P5.1 状态：✅ 已完成**（2026-10-14 收口）。`packages/tda-kernel/src/vendorBackend.ts`：createSqliteBackend（node:sqlite 同步、DSH 兼容物理布局——TDA 写出的 db 可被 DSH 后端直接打开）。vendor 门 5/5（多表往返+持久化+json 对拍 / 版本兼容集重戳 / backup 影子表）；**harness `storageBackend` 装配选项 + 执行环端到端在 sqlite 上跑通**（integration-p4 4/4 含 verifyInvariants 双写对账）。装配期发现（NUL 截断→长度前缀编码 / 坏 JSON=malformed-medium / 不包 DSH 本体的裁定 / **参数属性非可擦除——kill 子进程直跑炸，全量门拦下**）见施工图 §5 P5.1 补记。
+
+> **P5.2 状态：✅ 已完成**（2026-10-15 收口）。`packages/tda-kernel/src/sessionHostDsh.ts`：openDshCompatSessionHost 写 DSH jsonl 物理格式（header v4 + ignorable 事件行——**log-only 纯净与 DSH ignorable 语义天然对偶**）；vendor 门 8/8（含 DSH 真词表采纳 + truncation-repair 字节不变）；harness `sessionBackend` 装配选项 + 执行环端到端在 dsh-compat 日志上跑通（integration-p4 5/5）。**装饰器=源码直吃硬边界**（llm 链 @Remote 不可转换——采纳校验用 DSH 真词表复刻，本体随 P5.4 宿主内置）见施工图 §5 P5.2 补记。
+
+**下一步（P4 实现）**：P0–P3 实现全部收官（Gate G0–G3 均过），P4 五份规格已成文（T4.1–T4.5，见 §4「P4 迭代切分」）。按 IT14–IT18 顺序排期；**系统性前置**=DSH 真运行时接入（vendor DSH + cordis.yml 全量层叠 + 四替身换真 seam + 工具注册），与 IT14 并行推进（见路线文档 P4 表首行）。P4 可直接消费的既有出口：①`ctx.trajectory.locate/auditView`（T4.1/T4.3/T4.4 审计与溯源面）；②`ctx.supervision.request/approve`+ResumeTicket（T4.1/T4.2/T4.5 审批接续的统一入口，v2 扩 4 kind）；③`ctx.subagentDispatch.execute`+outputSchema 白名单（T4.2/T4.5 LLM 工序 seam 的隔离底座）；④`ctx.workflow.start(defId, params, taskId)`（T4.1 workflow 路由模式）；⑤T0.6 `workspace.graph(taskId)`（T4.3 文件图谱桥接，零复制）。
