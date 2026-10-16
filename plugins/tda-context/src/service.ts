@@ -107,7 +107,7 @@ export interface ContextTimelineSeam {
     chunk: {
       readonly content: string;
       readonly chunkType: 'fact' | 'method' | 'reflection' | 'skill';
-      readonly source: 'task' | 'conversation' | 'study';
+      readonly source: 'task' | 'conversation' | 'study' | 'harness';
       readonly credential: 'user-original' | 'execution-verified' | 'model-produced' | 'tool-output' | 'external-content';
       readonly relatedTaskId?: string;
       readonly trajectoryLink?: string;

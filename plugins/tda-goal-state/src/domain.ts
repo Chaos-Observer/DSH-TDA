@@ -91,6 +91,10 @@ export const GoalNodeSchema = z
     budget: GoalBudgetSchema,
     queuePosition: z.number().optional(),
     focus: z.boolean(),
+    /** P4（T4.2 §3.4 v2）：目标来源（intake 代建收敛创建入口；人类直建 = 'human'）。 */
+    source: z.enum(['intake', 'human']).optional(),
+    /** P4（T4.2 §3.4 v2）：intake 提议溯源（supersede 链只登记指针）。 */
+    intakeProposalId: z.string().optional(),
     /** clear 的 tombstone 标记（T0.1 §2.1：保留 GoalRef + clearedAt，历史不丢）。 */
     clearedAt: z.number().optional(),
     createdAt: z.number(),
@@ -168,7 +172,8 @@ export type GoalTables = {
 
 export const goalStateDomainSpec = defineTdaDomain({
   name: 'tda-goal-state',
-  version: 1,
+  version: 2,
+  compatibleVersions: [1],
   tables: {
     goal_nodes: GoalNodeSchema,
     goal_history: GoalChangeRecordSchema,

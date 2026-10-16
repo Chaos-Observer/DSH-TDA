@@ -46,6 +46,12 @@ export const AUDIT_ENTITY_KINDS = [
   'knowledge',
   'approval',
   'identity',
+  // P4 扩展族（T4.1 执行环/T4.5 规划器/T4.2 需求对接；T4.3 图谱/T4.4 展示不立族）
+  'executor',
+  'plan',
+  'contingency',
+  'requirement',
+  'proposal',
 ] as const;
 export type AuditEntityKind = (typeof AUDIT_ENTITY_KINDS)[number];
 
@@ -113,4 +119,9 @@ export const ENTITY_FAMILY: Readonly<Record<AuditEntityKind, string>> = {
   knowledge: 'knowledge/change',
   approval: 'supervision/change',
   identity: 'identity/change',
+  executor: 'executor/change',
+  plan: 'planner/change',
+  contingency: 'planner/change',
+  requirement: 'intake/change',
+  proposal: 'intake/change',
 };

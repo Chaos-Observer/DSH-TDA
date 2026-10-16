@@ -37,6 +37,9 @@ export const goalChangePayload = (node: GoalNode): GoalChangeEventPayload => ({
   },
   ...(node.queuePosition !== undefined ? { queuePosition: node.queuePosition } : {}),
   focus: node.focus,
+  // P4（T4.2 §3.4 v2）：source/intakeProposalId 键序 = GoalNodeSchema 定义序（focus 后）
+  ...(node.source !== undefined ? { source: node.source } : {}),
+  ...(node.intakeProposalId !== undefined ? { intakeProposalId: node.intakeProposalId } : {}),
   ...(node.clearedAt !== undefined ? { clearedAt: node.clearedAt } : {}),
   createdAt: node.createdAt,
   updatedAt: node.updatedAt,

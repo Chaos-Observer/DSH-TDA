@@ -37,6 +37,7 @@ import {
   QUARANTINE_CREDENTIALS,
   CREDENTIAL_RANK,
   type TimelineCredential,
+  type TimelineSource,
   type TimelineEntry,
   type TimelineTables,
   type TimelineWriter,
@@ -49,7 +50,7 @@ import { createBm25Index, type TimelineTextIndex } from './fts.ts';
 export interface TimelineChunk {
   readonly content: string;
   readonly chunkType: 'fact' | 'method' | 'reflection' | 'skill';
-  readonly source: 'task' | 'conversation' | 'study';
+  readonly source: TimelineSource;
   readonly credential: TimelineCredential;
   /** 弱链接（J8：无外键、无级联）。 */
   readonly relatedTaskId?: TaskId;

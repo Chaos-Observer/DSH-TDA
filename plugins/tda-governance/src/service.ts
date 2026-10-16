@@ -69,7 +69,7 @@ export interface GovTimelineEntry {
   readonly kind: 'chunk' | 'invalidation';
   readonly content: string;
   readonly chunkType?: 'fact' | 'method' | 'reflection' | 'skill' | undefined;
-  readonly source: 'task' | 'conversation' | 'study';
+  readonly source: 'task' | 'conversation' | 'study' | 'harness';
   readonly credential: GovCredential;
   readonly quarantine: boolean;
   readonly relatedTaskId?: string | undefined;
@@ -81,7 +81,7 @@ export interface GovTimelineEntry {
 export interface GovTimelineChunk {
   readonly content: string;
   readonly chunkType: 'fact' | 'method' | 'reflection' | 'skill';
-  readonly source: 'task' | 'conversation' | 'study';
+  readonly source: 'task' | 'conversation' | 'study' | 'harness';
   readonly credential: GovCredential;
   readonly relatedTaskId?: string;
   readonly trajectoryLink?: string;

@@ -29,7 +29,13 @@ export const TIMELINE_CHUNK_TYPES = ['fact', 'method', 'reflection', 'skill'] as
 export type TimelineChunkType = (typeof TIMELINE_CHUNK_TYPES)[number];
 
 /** 写入管道（§3.4.1 PIPE/Channel：任务执行/对话摘要/学习笔记）。 */
-export const TIMELINE_SOURCES = ['task', 'conversation', 'study'] as const;
+export const TIMELINE_SOURCES = [
+  'task',
+  'conversation',
+  'study',
+  // P4（T4.4 J7）：display 报告产物来源（harness 内嵌状态台，人读报告落时间线）
+  'harness',
+] as const;
 export type TimelineSource = (typeof TIMELINE_SOURCES)[number];
 
 /** 信任分层凭证五级（§3.4.4 / J5）。 */

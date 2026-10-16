@@ -66,6 +66,10 @@ export interface CreateGoalRequest {
   readonly queuePosition?: number;
   /** C6 约束快照（创建时固定；T0.4 pinned 区数据源之一）。 */
   readonly pinned?: readonly string[];
+  /** P4（T4.2 §3.4 v2）：目标来源（intake 代建收敛创建入口；人类直建缺省 'human'）。 */
+  readonly source?: 'intake' | 'human';
+  /** P4（T4.2 §3.4 v2）：intake 提议溯源（source='intake' 时必填——goal-state 加载期断言）。 */
+  readonly intakeProposalId?: string;
 }
 
 export interface EditGoalRequest {
@@ -426,6 +430,10 @@ export function createGoalTreeService(deps: GoalServiceDeps): GoalTreeService {
         // 默认继承父预算；显式分配优先——两条路都过守恒检查
         const caps: GoalBudgetCaps = req.budget ?? (parent === undefined ? {} : capsOf(parent.budget));
         if (parent !== undefined) assertBudgetConservation(parent, caps);
+        // P4（T4.2 §3.4 v2）：intake 来源必携提议溯源（加载期断言的服务期对偶）
+        if (req.source === 'intake' && req.intakeProposalId === undefined) {
+          throw new TdaError('INTAKE_PROVENANCE_REQUIRED', `目标 ${req.objective.slice(0, 40)} source='intake' 必携 intakeProposalId（溯源断裂禁建）`);
+        }
         // 新树（无父）根即焦点；子树无焦点时新节点补位（单焦点自愈）
         const focus = parent === undefined || focusOfTree(rootOf(parent)) === undefined;
         const node: GoalNode = {
@@ -441,6 +449,9 @@ export function createGoalTreeService(deps: GoalServiceDeps): GoalTreeService {
           budget: { ...caps, consumed: { ...ZERO_CONSUMED } },
           ...(req.queuePosition !== undefined ? { queuePosition: req.queuePosition } : {}),
           focus,
+          // P4（T4.2 §3.4 v2）：来源与提议溯源（intake 代建必带；人类直建 source='human'）
+          source: req.source ?? 'human',
+          ...(req.intakeProposalId !== undefined ? { intakeProposalId: req.intakeProposalId } : {}),
           createdAt: now,
           updatedAt: now,
         };

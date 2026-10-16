@@ -56,7 +56,10 @@ export function supervisionInvariantChecks(domain: TdaDomain<SupervisionTables>,
     name: 'supervision-billing-target',
     run(fail) {
       // 不变量 7：每个审批项 taskId/goalId 至少其一。
+      // P4（T4.2 装配期裁定）：requirement-* 审批先于 goal/task 存在，豁免
+      // （其计费落点挂 draftId/proposalId，经 requester.ref 溯源）。
       for (const approval of face?.approvals() ?? []) {
+        if (approval.kind.startsWith('requirement-')) continue;
         if (approval.taskId === undefined && approval.goalId === undefined) {
           fail(`审批项 ${String(approval.approvalId)} 缺计费落点（taskId/goalId 至少其一）`);
         }

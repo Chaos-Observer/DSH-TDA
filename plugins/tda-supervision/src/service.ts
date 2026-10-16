@@ -211,10 +211,18 @@ export function createSupervisionService(deps: SupervisionDeps): SupervisionServ
   const chargeAttention = async (
     kind: AttentionCharge['kind'],
     units: number,
-    ref: { approvalId?: string; taskId?: string; goalId?: string },
+    ref: { approvalId?: string; kind?: string; taskId?: string; goalId?: string },
   ): Promise<void> => {
     if (units === 0) return;
-    if ((ref.taskId ?? undefined) === undefined && (ref.goalId ?? undefined) === undefined) {
+    // P4（T4.2 装配期裁定）：requirement-* 审批（confirm/clarify）发生在 goal/task
+    // 创建之前——无计费落点是需求阶段的固有形态，豁免（其注意力记账挂 draftId，
+    // 经 requester.ref 溯源）；其余 kind 维持不变量 7。
+    const kindOf = (ref as { kind?: string }).kind ?? '';
+    if (
+      !kindOf.startsWith('requirement-') &&
+      (ref.taskId ?? undefined) === undefined &&
+      (ref.goalId ?? undefined) === undefined
+    ) {
       throw new TdaError('SUPERVISION_BILLING_TARGET', '计费落点必填：taskId/goalId 至少其一（不变量 7）');
     }
     chargeSeq += 1;
@@ -321,6 +329,7 @@ export function createSupervisionService(deps: SupervisionDeps): SupervisionServ
         // 逐项推送 = 请求入队即计费（J7）；digest 项 flush 时聚合计费。
         await chargeAttention('approval', units, {
           approvalId: String(approvalId),
+          kind: input.kind,
           ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
           ...(input.goalId !== undefined ? { goalId: input.goalId } : {}),
         });

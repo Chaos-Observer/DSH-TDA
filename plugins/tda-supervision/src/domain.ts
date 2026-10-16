@@ -20,6 +20,11 @@ export const APPROVAL_KINDS = [
   'adoption-candidate',
   'identity-migration',
   'risk-acceptance',
+  // P4（T4.2/T4.5 §3.4 v2）：需求对接 + 规划审批四Kind
+  'requirement-confirm',
+  'requirement-clarify',
+  'task-plan',
+  'plan-activation',
 ] as const;
 export const RISK_LEVELS = ['low', 'medium', 'high'] as const;
 export const APPROVAL_STATUS = ['pending', 'approved', 'rejected', 'cancelled'] as const;
@@ -145,6 +150,10 @@ export const DEFAULT_SUPERVISION_PARAMS: SupervisionParams = {
     'adoption-candidate': 'low',
     'identity-migration': 'high',
     'risk-acceptance': 'high',
+    'requirement-confirm': 'medium',
+    'requirement-clarify': 'low',
+    'task-plan': 'medium',
+    'plan-activation': 'medium',
   },
   baseUnits: { low: 1, medium: 3, high: 5 },
   volumeFactorCap: 3,
@@ -163,7 +172,8 @@ export const SUPERVISION_PARAMS_BUSINESS_ID = 'params';
 
 export const supervisionDomainSpec = defineTdaDomain({
   name: 'tda-supervision',
-  version: 1,
+  version: 2,
+  compatibleVersions: [1],
   // per-record：approval_requests 键=approvalId，events 键=eventId，ledger 键=chargeId。
   layout: 'per-record',
   tables: {
