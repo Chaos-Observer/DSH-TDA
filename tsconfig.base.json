@@ -20,6 +20,11 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "types": ["node"],
+    /* P5（DSH 真装配）：vendor 源码脱离 TDA 严格 tsc——类型经集中门面（详细声明
+       + 拦截 stub），运行层 vitest 经 node_modules junction 直吃 vendor .ts。 */
+    "paths": {
+      "@deepseek-ai/*": ["./vendor/dsh/vendor-types.d.ts"]
+    },
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "sourceMap": true

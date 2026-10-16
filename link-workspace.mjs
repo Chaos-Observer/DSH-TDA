@@ -95,6 +95,23 @@ for (const dir of WORKSPACE_DIRS) {
   }
 }
 
+// P5.6：根级 workspace 链接（cordis loader 裸说明符可达——DSH 宿主行按包名挂载，
+// import('tda-*') 从 vendor 树向上解析到根 node_modules）。幂等，不碰既有依赖链接。
+const ROOT_LINKS = join(ROOT, 'node_modules');
+mkdirSync(ROOT_LINKS, { recursive: true });
+for (const [name, dir] of pkgDirs) {
+  const linkPath = join(ROOT_LINKS, name);
+  if (existsSync(linkPath)) continue;
+  try {
+    mkdirSync(dirname(linkPath), { recursive: true });
+    symlinkSync(dir, linkPath, 'junction');
+    created += 1;
+    console.log(`root-link ${linkPath} → ${dir}`);
+  } catch (error) {
+    problems.push(`root-link ${linkPath}: ${String(error)}`);
+  }
+}
+
 console.log(`\ncreated=${created} repaired=${repaired} healthy=${healthy}`);
 if (problems.length > 0) {
   console.log('PROBLEMS:\n' + problems.join('\n'));
